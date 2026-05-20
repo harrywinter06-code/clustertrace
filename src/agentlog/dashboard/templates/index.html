@@ -57,7 +57,41 @@ async function loadTraces() {
     `${data.traces.length} of ${data.total} traces`;
   const body = document.getElementById('traces-body');
   if (!data.traces.length) {
-    body.innerHTML = '<tr><td colspan="7" class="muted">No traces match. Decorate a function with <code>@agentlog.trace</code> and run it.</td></tr>';
+    if (data.total === 0) {
+      body.innerHTML = `<tr><td colspan="7">
+        <div class="empty-state">
+          <h3>No traces yet</h3>
+          <p class="muted">Get started in 30 seconds — pick one of these:</p>
+          <div class="empty-grid">
+            <div class="empty-card">
+              <h4>Try the bundled demo</h4>
+              <pre>agentlog demo</pre>
+              <p class="muted small">60 pre-recorded traces, no API key needed.</p>
+            </div>
+            <div class="empty-card">
+              <h4>Instrument your own code</h4>
+              <pre>import agentlog
+
+@agentlog.trace
+def my_agent(q): ...
+
+my_agent("hello")</pre>
+              <p class="muted small">Then refresh this page.</p>
+            </div>
+            <div class="empty-card">
+              <h4>Or pipe in OpenTelemetry</h4>
+              <pre>from agentlog.otel import \
+  AgentlogSpanExporter
+provider.add_span_processor(
+  BatchSpanProcessor(AgentlogSpanExporter()))</pre>
+              <p class="muted small">LangChain, LlamaIndex, Bedrock — anything with OTel.</p>
+            </div>
+          </div>
+        </div>
+      </td></tr>`;
+    } else {
+      body.innerHTML = '<tr><td colspan="7" class="muted">No traces match the current filters.</td></tr>';
+    }
     return;
   }
 

@@ -376,3 +376,22 @@ code {
   overflow-y: auto;
 }
 .search-snippet mark { background: rgba(199, 154, 42, 0.55); color: #fff; padding: 0 2px; border-radius: 2px; }
+
+.empty-state { padding: 24px 16px; text-align: center; }
+.empty-state h3 { margin: 0 0 4px; }
+.empty-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+  text-align: left;
+}
+.empty-card {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.empty-card h4 { margin: 0 0 6px; font-size: 13px; color: var(--fg); text-transform: none; letter-spacing: 0; }
+.empty-card pre { background: var(--bg); margin: 6px 0; }
+.empty-card p { margin: 6px 0 0; }

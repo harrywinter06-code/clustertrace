@@ -13,7 +13,7 @@ __all__ = [
     "wrap_openai",
     "get_db_path",
 ]
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 
 def wrap_anthropic(client):

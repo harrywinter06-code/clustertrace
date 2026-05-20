@@ -1,0 +1,23 @@
+name: Feature request
+description: Propose a new feature or behaviour change.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: The concrete situation that made you wish agentlog did this. Skip "wouldn't it be cool if…".
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed shape of the fix
+      description: API sketch, screenshot, or rough mechanism. Doesn't need to be final.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What would you do instead today?
+      description: Workarounds, other tools that have it, why the workarounds aren't enough.

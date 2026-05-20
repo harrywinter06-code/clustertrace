@@ -33,6 +33,70 @@ def dashboard(host: str, port: int, reload: bool) -> None:
     )
 
 
+@main.command()
+@click.option("--port", default=7777, show_default=True, type=int)
+@click.option("--no-browser", is_flag=True, help="Don't open the browser automatically.")
+def demo(port: int, no_browser: bool) -> None:
+    """One-step trial: import bundled demo data and launch the dashboard.
+
+    No API key needed. 60 real traces of three agents (research, rag,
+    tool_use) showing failure clustering, search, cost, and metrics.
+    """
+    import importlib.resources
+    import os
+    import tempfile
+    import threading
+    import time
+    import webbrowser
+
+    import uvicorn
+
+    from agentlog import export
+
+    # Use a temp DB so we don't clobber the user's main store.
+    tmp = tempfile.NamedTemporaryFile(prefix="agentlog-demo-", suffix=".db", delete=False)
+    tmp.close()
+    os.environ["AGENTLOG_DB"] = tmp.name
+    storage.reset_initialized_cache()
+
+    try:
+        data_file = importlib.resources.files("agentlog").joinpath("data/demo-traces.jsonl")
+        with data_file.open("r", encoding="utf-8") as f:
+            imported, skipped = export.import_lines(f)
+    except Exception as e:
+        raise click.ClickException(f"could not load bundled demo data: {e}") from e
+
+    click.echo(f"loaded {imported} demo traces (skipped {skipped}) into {tmp.name}")
+
+    # Best-effort: ensure backfilled signatures/costs are present.
+    try:
+        from agentlog import cluster, cost
+        cluster.backfill_signatures()
+        cost.backfill()
+    except Exception:
+        pass
+
+    url = f"http://127.0.0.1:{port}"
+    click.echo(f"agentlog demo → {url}")
+    click.echo("→ start with /clusters to see the failure-pattern view")
+
+    if not no_browser:
+        def _open():
+            time.sleep(0.7)
+            try:
+                webbrowser.open(url)
+            except Exception:
+                pass
+        threading.Thread(target=_open, daemon=True).start()
+
+    uvicorn.run(
+        "agentlog.dashboard.app:app",
+        host="127.0.0.1",
+        port=port,
+        log_level="warning",
+    )
+
+
 @main.command("db-path")
 def db_path() -> None:
     """Print the SQLite database path agentlog is using."""

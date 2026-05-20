@@ -1,63 +1,39 @@
 # agentlog
 
-**Local-first LLM agent observability that actually tells you what to fix.** Drop in a decorator (or your existing OpenTelemetry setup), get traces grouped by execution pattern, cost-per-call, search across span I/O, replay of failing runs, and an honest answer to *"which two clusters are eating my error budget?"*
+[![tests](https://github.com/harrywinter06/agentlog/actions/workflows/test.yml/badge.svg)](https://github.com/harrywinter06/agentlog/actions/workflows/test.yml)
+[![python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-```bash
-pip install agentlog                 # core + dashboard
-pip install "agentlog[anthropic]"    # adds wrap_anthropic (works with Anthropic Bedrock + Vertex clients too)
-pip install "agentlog[openai]"       # adds wrap_openai
+**Local-first LLM agent observability that tells you *which clusters* of traces are failing — not which individual ones.** Drop in a decorator or your existing OpenTelemetry setup, get traces grouped by execution pattern, cost per call, full-text search, and replay of failing runs.
+
+```
+Clusters (29 distinct execution patterns across 246 traces, $0.20 total)
+
+retrieve:ok → rerank:error                                           29×    100% fail   $0.04
+plan:ok → llm:ok → web_search:error                                  12×    100% fail   $0.02
+search:ok → fetch:ok → extract:ok → llm:ok → fetch:ok → ...           8×      0% fail   $0.03
+plan:ok → llm:ok → web_search:ok → calculator:error → lookup:ok …     6×      0% fail   $0.01
+…  +25 more
 ```
 
-```python
-import agentlog
-
-@agentlog.trace(tags={"agent": "research"})
-def my_agent(query):
-    ...
-```
-
-```bash
-agentlog dashboard      # http://127.0.0.1:7777
-```
-
-That's the entire onboarding.
+**Two clusters explain 87% of all failures.** That's the kind of diagnosis the clusters page hands you in one screen instead of 47 stack traces.
 
 ---
 
-## The pitch
-
-Most LLM tracing tools dump traces into a list and let you go find the failures yourself. agentlog:
-
-1. **Groups every trace by structural signature** — sequence of span names + statuses, consecutive duplicates collapsed — so you see your N distinct execution patterns instead of a stream of N hundred individual traces.
-2. **Surfaces which patterns fail** — failure rate per cluster, longest path-prefix shared by every failed run.
-3. **Tells you what each cluster costs** — pricing table covers Anthropic / OpenAI / Gemini; override with `$AGENTLOG_PRICING_JSON`.
-4. **Lets you re-run a failing trace** — `agentlog replay <id> --entry mod:fn` re-invokes the entrypoint with the captured args, tags the new trace `replay_of=<original>`, the dashboard pairs them.
-
-### A real example
-
-The demo runs three small agents (`research`, `rag`, `tool_use`) ~80 times each — **246 traces, 47 failures, $0.20 total cost**. agentlog finds **29 distinct execution patterns**. The top two clusters explain **87% of all failures**:
-
-| Pattern | Count | Failure rate |
-|---|---|---|
-| `retrieve:ok → rerank:error` | 29 | 100% |
-| `plan:ok → anthropic.messages.create:ok → web_search:error` | 12 | 100% |
-
-The first one is the RAG agent failing at the reranker because retrieval handed it off-topic docs — fix the retriever, not the reranker. The second is the tool-use agent always tripping over a `web_search` rate limit after the planner runs. Both diagnoses in one screen instead of 47 stack traces.
-
-You can reproduce this yourself:
+## 30-second trial — no API key needed
 
 ```bash
-git clone https://github.com/harrywinter06/agentlog
-cd agentlog && uv pip install -e ".[anthropic,dev]"
-ANTHROPIC_API_KEY=sk-ant-... AGENTLOG_DB=./demo.db python examples/generate_demo_data.py 80
-AGENTLOG_DB=./demo.db agentlog dashboard  # open /clusters
+pip install "agentlog @ git+https://github.com/harrywinter06/agentlog"
+agentlog demo
 ```
+
+`agentlog demo` imports 60 pre-recorded traces of three agents (research, RAG, tool-use), launches the dashboard, and opens your browser. You can poke at the clusters page, run a search, see real cost data — without any API spend.
+
+*(Once on PyPI: `pip install agentlog` and you're done.)*
 
 ---
 
-## Use it without changing your code
-
-Three ways into agentlog, in order of friction:
+## When you're ready to use it for real
 
 ### 1. Native decorator
 
@@ -72,7 +48,7 @@ with agentlog.span("retrieval", k=5):
 
 agentlog.tool_call("web_search", args={"q": query}, result=hits)
 agentlog.tag("user_tier", "pro")
-agentlog.metric("score", 0.85)        # numeric — aggregates to a time-series chart
+agentlog.metric("score", 0.85)        # numeric — aggregated to a time-series chart
 ```
 
 Async-safe — concurrent `asyncio.gather` calls produce separate traces; nesting tracks the parent via `contextvars`.
@@ -84,18 +60,17 @@ from anthropic import Anthropic, AnthropicBedrock, AnthropicVertex
 from openai import OpenAI
 import agentlog
 
-# All four of these work — wrap_anthropic uses duck typing on .messages.create
-client = agentlog.wrap_anthropic(Anthropic())          # direct API
-bedrock = agentlog.wrap_anthropic(AnthropicBedrock())  # AWS Bedrock
-vertex  = agentlog.wrap_anthropic(AnthropicVertex())   # Google Vertex
-oai     = agentlog.wrap_openai(OpenAI())               # OpenAI
+client  = agentlog.wrap_anthropic(Anthropic())          # direct API
+bedrock = agentlog.wrap_anthropic(AnthropicBedrock())   # AWS Bedrock
+vertex  = agentlog.wrap_anthropic(AnthropicVertex())    # Google Vertex
+oai     = agentlog.wrap_openai(OpenAI())                # OpenAI
 ```
 
-Explicit wrap — no global monkey-patching of `requests` or the SDK module.
+Explicit wrap — no global monkey-patching. Async clients (`AsyncAnthropic`, `AsyncOpenAI`) are detected automatically.
 
 ### 3. OpenTelemetry exporter (use your existing instrumentation)
 
-If you already have OTel set up — LangChain, LlamaIndex, Bedrock auto-instrumentation, your own custom spans — just add agentlog as an exporter:
+If you already have OTel set up — LangChain, LlamaIndex, Bedrock auto-instrumentation, your own custom spans — add agentlog as an exporter:
 
 ```python
 from opentelemetry.sdk.trace import TracerProvider
@@ -106,28 +81,27 @@ provider = TracerProvider()
 provider.add_span_processor(BatchSpanProcessor(AgentlogSpanExporter()))
 ```
 
-The clusters page, cost view, and search work on OTel-sourced traces too. agentlog maps `gen_ai.*` and `llm.*` attribute conventions onto its own schema.
+The clusters page, cost view, and search work on OTel-sourced traces too. `gen_ai.*` and `llm.*` attribute conventions are mapped onto agentlog's schema.
 
 ---
 
-## What the dashboard shows
+## What you get
 
 | Page | What |
 |---|---|
-| **/** | filterable trace list (status, tag, name search) with live polling, **cost per trace** |
-| **/clusters** | each distinct execution pattern as one row — count, failure rate, sample trace, common failure prefix, top failing nodes |
+| **/** | filterable trace list (status, tag, name search) with live polling and per-trace cost |
+| **/clusters** | distinct execution patterns — count, failure rate, sample trace, longest common failure prefix, top failing nodes |
 | **/search** | FTS5 search across span name + input + output + error_message; supports phrases, OR, NEAR |
 | **/metrics** | per-metric aggregates + rolling-mean sparklines for everything you've passed to `agentlog.metric()` |
 | **/failures** | per-span error-rate bars, step-of-failure histogram, force-directed call graph |
 | **/trace/&lt;id&gt;** | Gantt timeline + expandable I/O + tags + metrics + per-span cost |
 
-See [`examples/sample-trace.html`](examples/sample-trace.html) for a self-contained shareable snapshot of one failing trace.
-
----
+See [`examples/sample-trace.html`](examples/sample-trace.html) for a self-contained shareable snapshot of one failing trace — 16 KB single file with embedded data and renderer, no external assets.
 
 ## CLI
 
 ```bash
+agentlog demo                                      # one-step trial with bundled data
 agentlog dashboard                                 # launch local server
 agentlog stats                                     # one-screen DB summary
 agentlog backfill-cost                             # compute $ for every LLM call
@@ -140,8 +114,6 @@ agentlog replay <trace_id> --entry mod:fn          # re-run with captured args
 agentlog db-path                                   # print SQLite path
 ```
 
----
-
 ## Configuration
 
 | Var | Default | Purpose |
@@ -152,35 +124,59 @@ agentlog db-path                                   # print SQLite path
 
 ---
 
-## What ships in v0.3
+## How does this compare to Langfuse / Phoenix / LangSmith?
 
-- `@trace` (sync + async), `agentlog.span`, `agentlog.tool_call`, `agentlog.tag`, `agentlog.metric`
-- `wrap_anthropic` (works with Anthropic, AnthropicBedrock, AnthropicVertex) and `wrap_openai` (sync + async clients)
-- **`AgentlogSpanExporter`** — any OpenTelemetry-instrumented app pipes spans into agentlog with one line
-- **Structural clustering** with longest-common-failure-prefix mining
-- **Cost tracking** with a built-in pricing table + env-var overrides
-- **FTS5 search** across span I/O
-- **Numeric metrics** + rolling-mean sparkline charts
-- **Replay** stored traces with their captured inputs
-- **JSON export/import** for portability
-- **Self-contained shareable HTML snapshots** (single file, no external assets)
-- SQLite storage with WAL, schema migrations, and on-demand backfill
-- Per-field payload truncation
-- 74 tests, ruff clean
+|  | agentlog | Langfuse OSS | Arize Phoenix | LangSmith |
+|---|---|---|---|---|
+| Local-first (one binary / SQLite) | yes | no (Postgres + worker) | yes (in-memory or Postgres) | no (SaaS) |
+| **Clusters traces by execution pattern** | **yes — the differentiator** | no | partial (groupings by ID, not signature) | no |
+| **Longest common failure prefix** | **yes** | no | no | no |
+| OpenTelemetry ingestion | yes (exporter) | yes | yes | partial |
+| Cost tracking | yes (built-in pricing) | yes | yes | yes |
+| Full-text search | yes (FTS5) | yes | yes | yes |
+| Replay with captured args | yes | partial | partial | yes |
+| Self-contained shareable trace HTML | **yes** (no other tool ships this) | no | no | no |
+| Decorator + OTel + SDK wrappers | all three | OTel + wrappers | OTel | wrappers |
+| Single-file install, no server setup | yes | no | yes (for in-mem) | n/a |
+| Multi-user / teams | no | yes | yes | yes |
+| Production retention / sampling | no | yes | yes | yes |
+
+**Pick agentlog when:** you're debugging a single agent or running a small eval suite on your laptop, you want clustering + failure-prefix mining as a first-class view, and you'd rather `pip install` than `docker compose up`.
+
+**Pick Langfuse / Phoenix / LangSmith when:** you're running in production, need teams, need retention policies, need PII redaction, or want a managed dashboard. agentlog is intentionally simpler.
+
+---
+
+## FAQ
+
+**Why not just use Langfuse OSS?** Langfuse is more capable for production deployment — multi-user, Postgres-backed, fully featured. It's also a four-container Docker stack that needs a workers process and a separate web service. agentlog is one Python package and one SQLite file. If you want to debug an agent on your laptop tonight, agentlog is faster to set up; if you want to deploy a tracing service for a team, Langfuse is the right answer.
+
+**Why "clustering" instead of just listing traces?** Because at 200+ traces, eyeballing the list doesn't find the pattern. The demo data has 29 distinct execution patterns; the top 2 account for 87% of all failures. That's the kind of structural signal you can't see from a list — and it's the diagnosis that points you at the actual fix.
+
+**Why local-only / no auth?** Trade-off: keeps the binary small and the trial frictionless. Single-user is the right default for a debug tool. The README is explicit that production observability with retention and teams is a different tool's job.
+
+**Does it work with LangChain / LlamaIndex / DSPy?** Yes, via the OpenTelemetry path. Anything emitting OTel spans flows into agentlog. We map `gen_ai.*` / `llm.*` attribute conventions onto our schema so cost and clustering still work.
+
+**Does it support streaming?** The span is logged on completion. Chunk-by-chunk capture isn't implemented yet (v0.4 target).
+
+**What's the algorithmic depth?** Cluster signatures use exact-string equality on a normalized, run-length-collapsed span sequence. Reorderings split clusters today (`A→B→C` and `A→C→B` are two clusters). Reorder-insensitive matching via set-of-edges or tree-edit-distance is the v0.4 algorithmic move. The README doesn't oversell the implementation — see [ARCHITECTURE.md](ARCHITECTURE.md) for the full design trade-offs.
+
+**How much does the demo cost?** $0. The bundled 60 traces are pre-recorded. The full reproduction script (`examples/generate_demo_data.py`, 240 traces) costs ~$2-3 in Haiku.
+
+---
 
 ## Known limitations
 
-- Reorderings split clusters. Two traces that do `A→B→C` and `A→C→B` are two clusters today, not one. Fix is on the v0.4 list (set-of-edges or tree-edit-distance signature mode).
+- Reorderings split clusters — v0.4 target.
+- Native wrappers only for Anthropic and OpenAI. Bedrock + Vertex work through `wrap_anthropic` because the Anthropic SDK's Bedrock/Vertex clients share `.messages.create`.
 - Streaming responses are logged on completion only, not chunk-by-chunk.
-- Native wrappers only for Anthropic and OpenAI. Bedrock and Vertex *work through* `wrap_anthropic` because the Anthropic SDK's Bedrock/Vertex clients share the `.messages.create` interface — but a native `wrap_bedrock` / `wrap_gemini` would catch token attribution edge cases better. PRs welcome (see [CONTRIBUTING.md](CONTRIBUTING.md)).
-- Replay with a modified prompt isn't implemented yet — the machinery is there, the prompt-diff stage isn't. v0.4.
+- Replay with prompt diff is not yet implemented — machinery is there, diff stage is v0.4.
 - No retention policy. The DB grows until you delete it; `~/.agentlog/traces.db` is safe to remove between sessions.
+- Single-user, no auth. See [SECURITY.md](SECURITY.md).
 
-## Why I built this
+## Contributing
 
-I was debugging an agent and noticed every tracing tool I tried treated each trace as a standalone item. With 200 traces and 40 failures, the only way to find a pattern was to eyeball them. The unblocking observation: most failures cluster on a small number of execution paths. Group by path, surface the failing groups, show what they share — that's most of the diagnosis.
-
-This is the smallest thing that delivers that. Read [ARCHITECTURE.md](ARCHITECTURE.md) for the trade-offs.
+Read [ARCHITECTURE.md](ARCHITECTURE.md) for the design choices, [CONTRIBUTING.md](CONTRIBUTING.md) for the setup and the step-by-step recipe for adding a new SDK wrapper. Real gaps that would meaningfully help users are listed at the bottom of CONTRIBUTING.md.
 
 ## License
 
