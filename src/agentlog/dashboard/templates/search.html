@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Search — agentlog{% endblock %}
+{% block content %}
+<section>
+  <h1>Search</h1>
+  <p class="muted">Full-text search across span names, inputs, outputs, and error messages. Supports FTS5 operators: <code>"exact phrase"</code>, <code>foo OR bar</code>, <code>foo NEAR bar</code>.</p>
+  <div class="filter-row" style="margin-top:8px;">
+    <input id="q-input" class="input" type="search" placeholder='e.g. "rate limit" OR timeout' style="flex:1;" autofocus>
+    <button id="go" class="btn">Search</button>
+  </div>
+  <div id="count" class="muted small" style="margin: 8px 0;"></div>
+  <div id="results"></div>
+</section>
+<script>
+function escapeHtmlButKeepMark(s) {
+  // The snippet contains literal <mark>…</mark>; escape everything else
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/&lt;mark&gt;/g, '<mark>')
+    .replace(/&lt;\/mark&gt;/g, '</mark>');
+}
+async function run() {
+  const q = document.getElementById('q-input').value.trim();
+  const countEl = document.getElementById('count');
+  const out = document.getElementById('results');
+  if (!q) { out.innerHTML = ''; countEl.textContent = ''; return; }
+  countEl.textContent = 'searching…';
+  const r = await fetch('/api/search?q=' + encodeURIComponent(q) + '&limit=80');
+  const data = await r.json();
+  if (data.error) {
+    countEl.innerHTML = `<span class="err">${data.error}</span>`;
+    out.innerHTML = '';
+    return;
+  }
+  countEl.textContent = `${data.results.length} matches`;
+  if (!data.results.length) { out.innerHTML = '<p class="muted">No matches.</p>'; return; }
+  out.innerHTML = data.results.map(r => `
+    <div class="search-hit">
+      <div class="row">
+        <a href="/trace/${r.trace_id}">${r.name}</a>
+        <span class="badge ${r.trace_status}">${r.trace_status}</span>
+        <span class="muted small">trace ${r.trace_id.slice(0,8)}</span>
+      </div>
+      <div class="search-snippet">${escapeHtmlButKeepMark(r.snippet)}</div>
+    </div>
+  `).join('');
+}
+document.getElementById('go').addEventListener('click', run);
+document.getElementById('q-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') run();
+});
+</script>
+{% endblock %}

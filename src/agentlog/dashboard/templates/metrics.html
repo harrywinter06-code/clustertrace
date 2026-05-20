@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Metrics — agentlog{% endblock %}
+{% block content %}
+<section>
+  <h1>Metrics</h1>
+  <p class="muted">Pass rates, eval scores, latency targets — anything you've attached via <code>agentlog.metric(name, value)</code> within a trace. Aggregates over time.</p>
+  <div id="aggregate" class="muted">loading…</div>
+  <div id="charts"></div>
+</section>
+<script>
+function escapeHtml(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function load() {
+  const r = await fetch('/api/metrics');
+  const data = await r.json();
+  const agg = document.getElementById('aggregate');
+  const charts = document.getElementById('charts');
+
+  if (!data.aggregate.length) {
+    agg.innerHTML = '<p class="muted">No metrics yet. Call <code>agentlog.metric("score", 0.85)</code> inside a traced function.</p>';
+    return;
+  }
+
+  agg.innerHTML = `
+    <table class="traces">
+      <thead><tr><th>Metric</th><th>n</th><th>avg</th><th>min</th><th>max</th></tr></thead>
+      <tbody>${data.aggregate.map(a => `
+        <tr>
+          <td><code>${escapeHtml(a.name)}</code></td>
+          <td>${a.n}</td>
+          <td>${a.avg != null ? a.avg.toFixed(4) : '—'}</td>
+          <td>${a.min != null ? Number(a.min).toFixed(4) : '—'}</td>
+          <td>${a.max != null ? Number(a.max).toFixed(4) : '—'}</td>
+        </tr>
+      `).join('')}</tbody>
+    </table>
+  `;
+
+  // Render each metric series as a small SVG sparkline + rolling average.
+  charts.innerHTML = Object.entries(data.series).map(([name, pts]) => {
+    const w = 720, h = 110, pad = 22;
+    if (!pts.length) return '';
+    const vals = pts.map(p => p.value);
+    const minV = Math.min(...vals), maxV = Math.max(...vals);
+    const span = Math.max(maxV - minV, 1e-9);
+    const x = i => pad + (i / Math.max(pts.length - 1, 1)) * (w - 2 * pad);
+    const y = v => h - pad - ((v - minV) / span) * (h - 2 * pad);
+    const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(1)} ${y(p.value).toFixed(1)}`).join(' ');
+    const dots = pts.map((p, i) => `
+      <circle cx="${x(i).toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="2.5"
+              fill="${p.trace_status === 'error' ? '#d44a4a' : '#6ea8fe'}" />
+    `).join('');
+    // rolling mean (window of 10 or n/4)
+    const w_size = Math.max(1, Math.floor(pts.length / 4));
+    const roll = [];
+    for (let i = 0; i < pts.length; i++) {
+      const start = Math.max(0, i - w_size + 1);
+      const slice = pts.slice(start, i + 1).map(p => p.value);
+      roll.push(slice.reduce((a, b) => a + b, 0) / slice.length);
+    }
+    const rollD = roll.map((v, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(' ');
+    return `
+      <div class="card" style="margin-top:16px;">
+        <h3 style="margin:0 0 6px;">${escapeHtml(name)} <span class="muted small">— ${pts.length} points</span></h3>
+        <svg width="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="background:var(--panel-2);border-radius:4px;">
+          <path d="${pathD}" fill="none" stroke="#3a6da7" stroke-width="1.4" />
+          ${dots}
+          <path d="${rollD}" fill="none" stroke="#caa024" stroke-width="2" stroke-dasharray="3,3" />
+          <text x="${pad}" y="14" font-size="11" fill="#8a92a3">min ${minV.toFixed(3)} — max ${maxV.toFixed(3)} · dashed = rolling mean</text>
+        </svg>
+      </div>
+    `;
+  }).join('');
+}
+load();
+</script>
+{% endblock %}

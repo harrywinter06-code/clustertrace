@@ -1,18 +1,19 @@
 """agentlog — zero-config local-first instrumentation for LLM agents."""
 
 from agentlog.storage import get_db_path
-from agentlog.trace import span, tag, tool_call, trace
+from agentlog.trace import metric, span, tag, tool_call, trace
 
 __all__ = [
     "trace",
     "span",
     "tool_call",
     "tag",
+    "metric",
     "wrap_anthropic",
     "wrap_openai",
     "get_db_path",
 ]
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 
 def wrap_anthropic(client):

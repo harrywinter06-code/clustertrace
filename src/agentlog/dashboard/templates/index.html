@@ -19,9 +19,9 @@
   <div id="trace-count" class="muted small" style="margin: 4px 0 8px;"></div>
   <table class="traces">
     <thead>
-      <tr><th>Started</th><th>Name</th><th>Tags</th><th>Status</th><th>Duration</th><th>Error</th></tr>
+      <tr><th>Started</th><th>Name</th><th>Tags</th><th>Status</th><th>Duration</th><th>Cost</th><th>Error</th></tr>
     </thead>
-    <tbody id="traces-body"><tr><td colspan="6" class="muted">loading…</td></tr></tbody>
+    <tbody id="traces-body"><tr><td colspan="7" class="muted">loading…</td></tr></tbody>
   </table>
 </section>
 <script>
@@ -57,7 +57,7 @@ async function loadTraces() {
     `${data.traces.length} of ${data.total} traces`;
   const body = document.getElementById('traces-body');
   if (!data.traces.length) {
-    body.innerHTML = '<tr><td colspan="6" class="muted">No traces match. Decorate a function with <code>@agentlog.trace</code> and run it.</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" class="muted">No traces match. Decorate a function with <code>@agentlog.trace</code> and run it.</td></tr>';
     return;
   }
 
@@ -74,6 +74,7 @@ async function loadTraces() {
     const tags = tagsByTrace[t.id] || {};
     const tagsHtml = Object.entries(tags).map(([k, v]) =>
       `<span class="tag-chip">${escapeHtml(k)}=${escapeHtml(v)}</span>`).join(' ');
+    const costStr = t.cost_usd != null ? '$' + Number(t.cost_usd).toFixed(4) : '<span class="muted small">—</span>';
     return `
     <tr class="${t.status === 'error' ? 'row-error' : ''}">
       <td class="muted small">${fmtTime(t.started_at)}</td>
@@ -81,6 +82,7 @@ async function loadTraces() {
       <td>${tagsHtml || '<span class="muted small">—</span>'}</td>
       <td><span class="badge ${t.status}">${t.status}</span></td>
       <td>${t.duration_ms != null ? t.duration_ms + ' ms' : '—'}</td>
+      <td class="muted small">${costStr}</td>
       <td class="muted small">${t.error_type ? escapeHtml(t.error_type) + ': ' + escapeHtml((t.error_message||'').slice(0,80)) : ''}</td>
     </tr>`;
   }).join('');

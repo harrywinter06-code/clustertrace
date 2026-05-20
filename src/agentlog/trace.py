@@ -32,6 +32,21 @@ def tag(key: str, value: str | int | float | bool) -> None:
     except Exception:
         pass
 
+
+def metric(name: str, value: float | int | bool) -> None:
+    """Attach a numeric metric (eval score, latency target, pass/fail) to the current trace.
+
+    Stored separately from tags so the dashboard can aggregate over time.
+    No-op outside a trace.
+    """
+    tid = _current_trace_id.get()
+    if tid is None:
+        return
+    try:
+        storage.set_metric(tid, str(name), float(value), time.time())
+    except Exception:
+        pass
+
 F = TypeVar("F", bound=Callable[..., Any])
 
 

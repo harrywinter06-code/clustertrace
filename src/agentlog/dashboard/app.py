@@ -66,6 +66,16 @@ async def failures(request: Request):
     return _TEMPLATES.TemplateResponse(request, "failures.html", {})
 
 
+@app.get("/search", response_class=HTMLResponse)
+async def search_page(request: Request):
+    return _TEMPLATES.TemplateResponse(request, "search.html", {})
+
+
+@app.get("/metrics", response_class=HTMLResponse)
+async def metrics_page(request: Request):
+    return _TEMPLATES.TemplateResponse(request, "metrics.html", {})
+
+
 @app.get("/clusters", response_class=HTMLResponse)
 async def clusters_page(request: Request):
     return _TEMPLATES.TemplateResponse(request, "clusters.html", {})
@@ -117,6 +127,78 @@ async def api_tags():
     return {"tags": by_key}
 
 
+@app.get("/api/search")
+async def api_search(q: str, limit: int = 50):
+    """Full-text search over span name + input + output + error_message."""
+    if not q or not q.strip():
+        return {"results": [], "query": q}
+    limit = max(1, min(limit, 200))
+    # FTS5 query: quote to allow phrases; otherwise let users use FTS5 operators.
+    fts_query = q.strip()
+    with storage.connect() as conn:
+        try:
+            rows = conn.execute(
+                """SELECT spans_fts.trace_id, spans_fts.span_id, spans_fts.name,
+                          snippet(spans_fts, 3, '<mark>', '</mark>', '...', 16) AS snippet,
+                          t.status AS trace_status
+                   FROM spans_fts
+                   JOIN traces t ON t.id = spans_fts.trace_id
+                   WHERE spans_fts MATCH ?
+                   ORDER BY rank
+                   LIMIT ?""",
+                (fts_query, limit),
+            ).fetchall()
+        except Exception:
+            # Treat parse errors as zero results so the UI doesn't crash on odd input.
+            return {"results": [], "query": q, "error": "search parse error"}
+    return {
+        "results": [
+            {
+                "trace_id": r["trace_id"],
+                "span_id": r["span_id"],
+                "name": r["name"],
+                "snippet": r["snippet"],
+                "trace_status": r["trace_status"],
+            }
+            for r in rows
+        ],
+        "query": q,
+    }
+
+
+@app.get("/api/metrics")
+async def api_metrics():
+    """All metric names + per-name counts and recent values for charting."""
+    with storage.connect() as conn:
+        agg = conn.execute(
+            """SELECT name, COUNT(*) AS n, AVG(value) AS avg_v, MIN(value) AS min_v, MAX(value) AS max_v
+               FROM trace_metrics GROUP BY name ORDER BY name"""
+        ).fetchall()
+        series_rows = conn.execute(
+            """SELECT m.name, m.value, m.recorded_at, t.status
+               FROM trace_metrics m JOIN traces t ON t.id = m.trace_id
+               ORDER BY m.recorded_at ASC"""
+        ).fetchall()
+    by_name: dict[str, list[dict]] = {}
+    for r in series_rows:
+        by_name.setdefault(r["name"], []).append(
+            {"value": r["value"], "at": r["recorded_at"], "trace_status": r["status"]}
+        )
+    return {
+        "aggregate": [
+            {
+                "name": r["name"],
+                "n": r["n"],
+                "avg": round(r["avg_v"], 4) if r["avg_v"] is not None else None,
+                "min": r["min_v"],
+                "max": r["max_v"],
+            }
+            for r in agg
+        ],
+        "series": by_name,
+    }
+
+
 @app.get("/api/stats")
 async def api_stats():
     with storage.connect() as conn:
@@ -128,6 +210,9 @@ async def api_stats():
         spans_error = conn.execute(
             "SELECT COUNT(*) AS c FROM spans WHERE status = 'error'"
         ).fetchone()["c"]
+        total_cost = conn.execute(
+            "SELECT COALESCE(SUM(cost_usd), 0) FROM traces"
+        ).fetchone()[0] or 0.0
         recent = conn.execute(
             """SELECT name, status, started_at FROM traces ORDER BY started_at DESC LIMIT 1"""
         ).fetchone()
@@ -137,6 +222,7 @@ async def api_stats():
         "traces_error_rate": (traces_error / traces_total) if traces_total else 0.0,
         "spans_total": spans_total,
         "spans_error": spans_error,
+        "total_cost_usd": round(total_cost, 4),
         "latest_trace": _row_to_dict(recent) if recent else None,
     }
 
@@ -170,7 +256,8 @@ async def api_traces(
             params.extend([k, v])
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
     sql = f"""SELECT traces.id, traces.name, traces.started_at, traces.ended_at,
-                     traces.status, traces.error_type, traces.error_message, traces.signature
+                     traces.status, traces.error_type, traces.error_message,
+                     traces.signature, traces.cost_usd
               FROM traces {join_tag}
               {where_sql}
               ORDER BY traces.started_at DESC

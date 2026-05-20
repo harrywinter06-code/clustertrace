@@ -62,6 +62,55 @@ _MIGRATIONS: list[str] = [
     ALTER TABLE traces ADD COLUMN signature TEXT;
     CREATE INDEX IF NOT EXISTS idx_traces_signature ON traces(signature);
     """,
+    # v3 — numeric metrics, cost cache, and FTS5 search index
+    """
+    CREATE TABLE IF NOT EXISTS trace_metrics (
+        trace_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        value REAL NOT NULL,
+        recorded_at REAL NOT NULL,
+        PRIMARY KEY (trace_id, name),
+        FOREIGN KEY (trace_id) REFERENCES traces(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_trace_metrics_name ON trace_metrics(name);
+
+    ALTER TABLE traces ADD COLUMN cost_usd REAL;
+    ALTER TABLE spans ADD COLUMN cost_usd REAL;
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS spans_fts USING fts5(
+        span_id UNINDEXED,
+        trace_id UNINDEXED,
+        name,
+        input_json,
+        output_json,
+        error_message,
+        tokenize='unicode61'
+    );
+
+    -- Triggers keep spans_fts in sync with spans
+    CREATE TRIGGER IF NOT EXISTS spans_fts_insert AFTER INSERT ON spans BEGIN
+        INSERT INTO spans_fts(span_id, trace_id, name, input_json, output_json, error_message)
+        VALUES (new.id, new.trace_id, new.name,
+                COALESCE(new.input_json, ''), COALESCE(new.output_json, ''), COALESCE(new.error_message, ''));
+    END;
+    CREATE TRIGGER IF NOT EXISTS spans_fts_update AFTER UPDATE ON spans BEGIN
+        UPDATE spans_fts
+        SET input_json = COALESCE(new.input_json, ''),
+            output_json = COALESCE(new.output_json, ''),
+            error_message = COALESCE(new.error_message, '')
+        WHERE span_id = new.id;
+    END;
+    CREATE TRIGGER IF NOT EXISTS spans_fts_delete AFTER DELETE ON spans BEGIN
+        DELETE FROM spans_fts WHERE span_id = old.id;
+    END;
+
+    -- Backfill spans_fts from any rows that pre-date this migration.
+    INSERT INTO spans_fts(span_id, trace_id, name, input_json, output_json, error_message)
+    SELECT id, trace_id, name,
+           COALESCE(input_json, ''), COALESCE(output_json, ''), COALESCE(error_message, '')
+    FROM spans
+    WHERE id NOT IN (SELECT span_id FROM spans_fts);
+    """,
 ]
 _SCHEMA_VERSION = len(_MIGRATIONS)
 
@@ -228,6 +277,32 @@ def get_trace_tags(trace_id: str) -> dict[str, str]:
             "SELECT key, value FROM trace_tags WHERE trace_id = ?", (trace_id,)
         ).fetchall()
     return {r["key"]: r["value"] for r in rows}
+
+
+def set_metric(trace_id: str, name: str, value: float, recorded_at: float) -> None:
+    with connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO trace_metrics(trace_id, name, value, recorded_at) VALUES(?, ?, ?, ?)",
+            (trace_id, name, value, recorded_at),
+        )
+
+
+def get_trace_metrics(trace_id: str) -> dict[str, float]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT name, value FROM trace_metrics WHERE trace_id = ?", (trace_id,)
+        ).fetchall()
+    return {r["name"]: r["value"] for r in rows}
+
+
+def set_span_cost(span_id: str, cost_usd: float) -> None:
+    with connect() as conn:
+        conn.execute("UPDATE spans SET cost_usd = ? WHERE id = ?", (cost_usd, span_id))
+
+
+def set_trace_cost(trace_id: str, cost_usd: float) -> None:
+    with connect() as conn:
+        conn.execute("UPDATE traces SET cost_usd = ? WHERE id = ?", (cost_usd, trace_id))
 
 
 def insert_span(

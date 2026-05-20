@@ -1,7 +1,7 @@
 [project]
 name = "agentlog"
-version = "0.2.0"
-description = "Local-first LLM agent tracing — decorator-based, SQLite, and a dashboard that clusters traces by execution pattern so you can see which patterns fail."
+version = "0.3.0"
+description = "Local-first LLM agent observability — decorator + OpenTelemetry ingestion, traces grouped by execution pattern, cost per call, search, replay, shareable HTML snapshots."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

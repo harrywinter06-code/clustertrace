@@ -1,24 +1,12 @@
 # agentlog
 
-Local-first instrumentation for LLM agents. Decorator-based traces, SQLite storage, and a dashboard that **clusters your traces by execution pattern** so you can see which patterns fail and what the failing ones have in common.
-
-The differentiator: most tracing tools dump traces into a list and let you go find the failures yourself. agentlog groups every trace by its structural signature and surfaces the longest path-prefix shared by every failed run — usually the actual root cause.
-
-- **Zero-config** — `@agentlog.trace` and you're done. No signup, no API keys, no env vars required.
-- **Local-first** — SQLite at `~/.agentlog/traces.db`. No phone-home, no telemetry, no version checks.
-- **Clustering, not just listing** — distinct execution patterns surface automatically; failing clusters and common failure prefixes are computed for you.
-
-## Install
+**Local-first LLM agent observability that actually tells you what to fix.** Drop in a decorator (or your existing OpenTelemetry setup), get traces grouped by execution pattern, cost-per-call, search across span I/O, replay of failing runs, and an honest answer to *"which two clusters are eating my error budget?"*
 
 ```bash
-pip install agentlog                    # core + dashboard
-pip install "agentlog[anthropic]"       # adds wrap_anthropic
-pip install "agentlog[openai]"          # adds wrap_openai
+pip install agentlog                 # core + dashboard
+pip install "agentlog[anthropic]"    # adds wrap_anthropic (works with Anthropic Bedrock + Vertex clients too)
+pip install "agentlog[openai]"       # adds wrap_openai
 ```
-
-Python 3.11+.
-
-## Quickstart
 
 ```python
 import agentlog
@@ -26,60 +14,133 @@ import agentlog
 @agentlog.trace(tags={"agent": "research"})
 def my_agent(query):
     ...
-
-my_agent("hello")
 ```
 
 ```bash
-agentlog dashboard          # http://127.0.0.1:7777
+agentlog dashboard      # http://127.0.0.1:7777
 ```
 
-## Full API
+That's the entire onboarding.
+
+---
+
+## The pitch
+
+Most LLM tracing tools dump traces into a list and let you go find the failures yourself. agentlog:
+
+1. **Groups every trace by structural signature** — sequence of span names + statuses, consecutive duplicates collapsed — so you see your N distinct execution patterns instead of a stream of N hundred individual traces.
+2. **Surfaces which patterns fail** — failure rate per cluster, longest path-prefix shared by every failed run.
+3. **Tells you what each cluster costs** — pricing table covers Anthropic / OpenAI / Gemini; override with `$AGENTLOG_PRICING_JSON`.
+4. **Lets you re-run a failing trace** — `agentlog replay <id> --entry mod:fn` re-invokes the entrypoint with the captured args, tags the new trace `replay_of=<original>`, the dashboard pairs them.
+
+### A real example
+
+The demo runs three small agents (`research`, `rag`, `tool_use`) ~80 times each — **246 traces, 47 failures, $0.20 total cost**. agentlog finds **29 distinct execution patterns**. The top two clusters explain **87% of all failures**:
+
+| Pattern | Count | Failure rate |
+|---|---|---|
+| `retrieve:ok → rerank:error` | 29 | 100% |
+| `plan:ok → anthropic.messages.create:ok → web_search:error` | 12 | 100% |
+
+The first one is the RAG agent failing at the reranker because retrieval handed it off-topic docs — fix the retriever, not the reranker. The second is the tool-use agent always tripping over a `web_search` rate limit after the planner runs. Both diagnoses in one screen instead of 47 stack traces.
+
+You can reproduce this yourself:
+
+```bash
+git clone https://github.com/harrywinter06/agentlog
+cd agentlog && uv pip install -e ".[anthropic,dev]"
+ANTHROPIC_API_KEY=sk-ant-... AGENTLOG_DB=./demo.db python examples/generate_demo_data.py 80
+AGENTLOG_DB=./demo.db agentlog dashboard  # open /clusters
+```
+
+---
+
+## Use it without changing your code
+
+Three ways into agentlog, in order of friction:
+
+### 1. Native decorator
 
 ```python
 import agentlog
 
-# 1. Decorator — sync OR async, captures inputs, outputs, exceptions, duration
-@agentlog.trace
+@agentlog.trace(tags={"agent": "research"})
 async def plan(query): ...
 
-# 2. Nested span context manager (parent linkage via contextvars, async-safe)
 with agentlog.span("retrieval", k=5):
     ...
 
-# 3. Explicit tool-call logging
 agentlog.tool_call("web_search", args={"q": query}, result=hits)
-agentlog.tool_call("web_search", args={"q": query}, error=TimeoutError("…"))
-
-# 4. Tag the current trace (filterable in the dashboard)
 agentlog.tag("user_tier", "pro")
-agentlog.tag("model", "haiku-4.5")
-
-# 5. Wrap LLM clients (explicit — no global monkey-patch)
-from anthropic import Anthropic
-from openai import OpenAI
-ac = agentlog.wrap_anthropic(Anthropic())
-oc = agentlog.wrap_openai(OpenAI())
+agentlog.metric("score", 0.85)        # numeric — aggregates to a time-series chart
 ```
 
-Concurrent `asyncio.gather` calls produce separate traces; nesting tracks the parent automatically via `contextvars`.
+Async-safe — concurrent `asyncio.gather` calls produce separate traces; nesting tracks the parent via `contextvars`.
+
+### 2. SDK wrappers (no decorator needed)
+
+```python
+from anthropic import Anthropic, AnthropicBedrock, AnthropicVertex
+from openai import OpenAI
+import agentlog
+
+# All four of these work — wrap_anthropic uses duck typing on .messages.create
+client = agentlog.wrap_anthropic(Anthropic())          # direct API
+bedrock = agentlog.wrap_anthropic(AnthropicBedrock())  # AWS Bedrock
+vertex  = agentlog.wrap_anthropic(AnthropicVertex())   # Google Vertex
+oai     = agentlog.wrap_openai(OpenAI())               # OpenAI
+```
+
+Explicit wrap — no global monkey-patching of `requests` or the SDK module.
+
+### 3. OpenTelemetry exporter (use your existing instrumentation)
+
+If you already have OTel set up — LangChain, LlamaIndex, Bedrock auto-instrumentation, your own custom spans — just add agentlog as an exporter:
+
+```python
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from agentlog.otel import AgentlogSpanExporter
+
+provider = TracerProvider()
+provider.add_span_processor(BatchSpanProcessor(AgentlogSpanExporter()))
+```
+
+The clusters page, cost view, and search work on OTel-sourced traces too. agentlog maps `gen_ai.*` and `llm.*` attribute conventions onto its own schema.
+
+---
 
 ## What the dashboard shows
 
 | Page | What |
 |---|---|
-| **Recent** | filterable trace list (status, tag, name search) with live polling |
-| **Clusters** | each distinct execution pattern as one row, with count, failure rate, sample trace link, and the longest path-prefix shared by every failed trace |
-| **Failure graph** | per-span error-rate bars, a histogram of where in a trace the failure happened, and a force-directed call graph |
-| **Trace detail** | Gantt timeline of spans, expandable input/output, tags, full exception text |
+| **/** | filterable trace list (status, tag, name search) with live polling, **cost per trace** |
+| **/clusters** | each distinct execution pattern as one row — count, failure rate, sample trace, common failure prefix, top failing nodes |
+| **/search** | FTS5 search across span name + input + output + error_message; supports phrases, OR, NEAR |
+| **/metrics** | per-metric aggregates + rolling-mean sparklines for everything you've passed to `agentlog.metric()` |
+| **/failures** | per-span error-rate bars, step-of-failure histogram, force-directed call graph |
+| **/trace/&lt;id&gt;** | Gantt timeline + expandable I/O + tags + metrics + per-span cost |
 
-## How clustering works
+See [`examples/sample-trace.html`](examples/sample-trace.html) for a self-contained shareable snapshot of one failing trace.
 
-A trace's *structural signature* is the ordered sequence of `(span_name, status)` pairs across its non-root spans, with consecutive duplicates collapsed (so "fetch × 5" is the same pattern as "fetch × 3"). Two traces with the same signature took the same execution path; clustering by signature reveals the distinct ways your agent runs.
+---
 
-LLM-call spans normalize by provider, not by model id — so a model swap doesn't fragment your clusters.
+## CLI
 
-For the failed traces in your DB, the dashboard computes the longest common `(name, status)` prefix shared by all of them. That prefix is usually a clearer signal than any single stack trace: it tells you the path the agent took *before* it started failing.
+```bash
+agentlog dashboard                                 # launch local server
+agentlog stats                                     # one-screen DB summary
+agentlog backfill-cost                             # compute $ for every LLM call
+agentlog backfill-signatures                       # signatures for older traces
+agentlog snapshot <trace_id> -o trace.html         # self-contained shareable HTML
+agentlog export <trace_id>                         # JSONL to stdout
+agentlog export --all > backup.jsonl               # everything
+agentlog import < backup.jsonl                     # merge (skips existing IDs)
+agentlog replay <trace_id> --entry mod:fn          # re-run with captured args
+agentlog db-path                                   # print SQLite path
+```
+
+---
 
 ## Configuration
 
@@ -87,40 +148,39 @@ For the failed traces in your DB, the dashboard computes the longest common `(na
 |-----|---------|---------|
 | `AGENTLOG_DB` | `~/.agentlog/traces.db` | SQLite file path |
 | `AGENTLOG_MAX_PAYLOAD_BYTES` | `32768` | Per-field cap on serialized span I/O |
+| `AGENTLOG_PRICING_JSON` | (none) | Override or extend the model price table |
 
-That's the entire configuration surface.
+---
 
-## Works (v0.2)
+## What ships in v0.3
 
-- Sync and async `@trace` decoration with full input/output/exception capture
-- `agentlog.span(...)` nested spans, `agentlog.tool_call(...)`, `agentlog.tag(...)`
-- `wrap_anthropic` and `wrap_openai` for sync and async clients (explicit, not global monkey-patch)
-- SQLite storage with WAL mode, schema migrations, and on-demand signature backfill for existing traces
-- Per-field payload truncation so a 10 MB tool output doesn't blow up your DB
-- Dashboard: filterable trace list with live polling, trace detail timeline, **clusters page**, failure graph, JSON endpoints
+- `@trace` (sync + async), `agentlog.span`, `agentlog.tool_call`, `agentlog.tag`, `agentlog.metric`
+- `wrap_anthropic` (works with Anthropic, AnthropicBedrock, AnthropicVertex) and `wrap_openai` (sync + async clients)
+- **`AgentlogSpanExporter`** — any OpenTelemetry-instrumented app pipes spans into agentlog with one line
+- **Structural clustering** with longest-common-failure-prefix mining
+- **Cost tracking** with a built-in pricing table + env-var overrides
+- **FTS5 search** across span I/O
+- **Numeric metrics** + rolling-mean sparkline charts
+- **Replay** stored traces with their captured inputs
+- **JSON export/import** for portability
+- **Self-contained shareable HTML snapshots** (single file, no external assets)
+- SQLite storage with WAL, schema migrations, and on-demand backfill
+- Per-field payload truncation
+- 74 tests, ruff clean
 
-## Known limitations (v0.2)
+## Known limitations
 
-- Only Anthropic and OpenAI have built-in wrappers. Gemini/Bedrock/Ollama land later.
+- Reorderings split clusters. Two traces that do `A→B→C` and `A→C→B` are two clusters today, not one. Fix is on the v0.4 list (set-of-edges or tree-edit-distance signature mode).
 - Streaming responses are logged on completion only, not chunk-by-chunk.
-- No replay or run-comparison view yet — you can see which clusters fail, but you can't yet diff a failing trace against a similar succeeding one.
+- Native wrappers only for Anthropic and OpenAI. Bedrock and Vertex *work through* `wrap_anthropic` because the Anthropic SDK's Bedrock/Vertex clients share the `.messages.create` interface — but a native `wrap_bedrock` / `wrap_gemini` would catch token attribution edge cases better. PRs welcome (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+- Replay with a modified prompt isn't implemented yet — the machinery is there, the prompt-diff stage isn't. v0.4.
 - No retention policy. The DB grows until you delete it; `~/.agentlog/traces.db` is safe to remove between sessions.
-- Clustering signatures collapse consecutive duplicates but don't fuzzy-match across reorderings.
 
 ## Why I built this
 
-I was debugging a 5-step research agent that fanned out across tools. Every run looked unique in the logs, so I couldn't tell whether each new failure was a one-off or part of a pattern. Existing tracers either need a SaaS account or treat every trace as an independent log line. I wanted the tool to look at all my traces, find the recurring shapes, and tell me which shapes break. That's what the clusters page does.
+I was debugging an agent and noticed every tracing tool I tried treated each trace as a standalone item. With 200 traces and 40 failures, the only way to find a pattern was to eyeball them. The unblocking observation: most failures cluster on a small number of execution paths. Group by path, surface the failing groups, show what they share — that's most of the diagnosis.
 
-### Concrete example: 246 runs of three agents
-
-The demo data in `examples/` runs three small agents (`research`, `rag`, `tool_use`) ~80 times each — 246 traces, 47 failures (19%). Across them, agentlog finds **29 distinct execution patterns**. The top two clusters explain **87% of all failures**:
-
-| Pattern | Count | Failure rate |
-|---|---|---|
-| `retrieve:ok → rerank:error` | 29 | 100% |
-| `plan:ok → anthropic.messages.create:ok → web_search:error` | 12 | 100% |
-
-The first one is the RAG agent: retrieval always succeeds, the reranker rejects the docs as off-topic. The fix isn't the reranker — it's the retrieval step returning bad docs for a meaningful fraction of queries. The second is the tool-use agent always tripping over a web_search rate limit after the planner runs. Both diagnoses are one glance, not 47 stack traces.
+This is the smallest thing that delivers that. Read [ARCHITECTURE.md](ARCHITECTURE.md) for the trade-offs.
 
 ## License
 

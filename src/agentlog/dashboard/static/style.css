@@ -354,3 +354,25 @@ code {
 
 .prefix-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .node-row { padding: 3px 0; }
+
+.search-hit {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+}
+.search-snippet {
+  margin-top: 6px;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted);
+  background: var(--panel-2);
+  padding: 6px 8px;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 120px;
+  overflow-y: auto;
+}
+.search-snippet mark { background: rgba(199, 154, 42, 0.55); color: #fff; padding: 0 2px; border-radius: 2px; }
