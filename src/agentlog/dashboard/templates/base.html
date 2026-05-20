@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}agentlog{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="https://unpkg.com/htmx.org@1.9.12"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><a href="/">agentlog</a></div>
+  <nav>
+    <a href="/">Recent</a>
+    <a href="/failures">Failure clusters</a>
+  </nav>
+  <div class="stats" id="header-stats" hx-get="/api/stats" hx-trigger="load" hx-swap="innerHTML">
+    <span class="muted">loading…</span>
+  </div>
+</header>
+<main>
+{% block content %}{% endblock %}
+</main>
+<script>
+  // Render header stats once HTMX swaps in the JSON-ish payload.
+  // We re-fetch via fetch() for proper JSON parsing.
+  (async () => {
+    try {
+      const r = await fetch('/api/stats');
+      const d = await r.json();
+      const el = document.getElementById('header-stats');
+      const errPct = d.traces_total ? (d.traces_error / d.traces_total * 100).toFixed(0) : '0';
+      el.innerHTML = `
+        <span><b>${d.traces_total}</b> traces</span>
+        <span><b>${d.traces_error}</b> failed (${errPct}%)</span>
+        <span class="muted"><b>${d.spans_total}</b> spans</span>
+      `;
+    } catch (e) {}
+  })();
+</script>
+</body>
+</html>

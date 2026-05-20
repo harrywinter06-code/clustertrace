@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}{{ trace_name }} — agentlog{% endblock %}
+{% block content %}
+<section>
+  <a href="/" class="back">← all traces</a>
+  <h1>{{ trace_name }}</h1>
+  <div id="trace-meta" class="muted small"></div>
+
+  <h2>Timeline</h2>
+  <div id="timeline" class="timeline"></div>
+
+  <h2>Spans</h2>
+  <div id="spans" class="spans"></div>
+</section>
+<script>
+const traceId = {{ trace_id | tojson }};
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function loadTrace() {
+  const r = await fetch(`/api/trace/${traceId}`);
+  if (!r.ok) {
+    document.getElementById('trace-meta').textContent = 'Trace not found.';
+    return;
+  }
+  const data = await r.json();
+  const trace = data.trace;
+  const spans = data.spans;
+
+  const startedStr = new Date(trace.started_at * 1000).toLocaleString();
+  const durMs = trace.ended_at ? Math.round((trace.ended_at - trace.started_at) * 1000) : null;
+  document.getElementById('trace-meta').innerHTML = `
+    started ${startedStr} · status <span class="badge ${trace.status}">${trace.status}</span> ·
+    ${durMs != null ? durMs + ' ms' : 'in-flight'} · ${spans.length} spans
+    ${trace.error_type ? '· <span class="err">' + escapeHtml(trace.error_type) + ': ' + escapeHtml(trace.error_message||'') + '</span>' : ''}
+  `;
+
+  if (!spans.length) {
+    document.getElementById('spans').innerHTML = '<p class="muted">No spans recorded.</p>';
+    return;
+  }
+
+  // timeline
+  const t0 = trace.started_at;
+  const t1 = trace.ended_at || Math.max(...spans.map(s => s.ended_at || s.started_at));
+  const total = Math.max(t1 - t0, 0.001);
+  const tl = document.getElementById('timeline');
+  tl.innerHTML = spans.map(s => {
+    const start = (s.started_at - t0) / total * 100;
+    const end = ((s.ended_at || t1) - t0) / total * 100;
+    const width = Math.max(end - start, 0.5);
+    return `
+      <div class="tl-row">
+        <div class="tl-label">${escapeHtml(s.name)} <span class="muted small">[${s.kind}]</span></div>
+        <div class="tl-bar-wrap">
+          <div class="tl-bar ${s.status}" style="left:${start}%;width:${width}%"></div>
+        </div>
+        <div class="tl-dur muted small">${s.duration_ms != null ? s.duration_ms + ' ms' : '—'}</div>
+      </div>
+    `;
+  }).join('');
+
+  // span details
+  document.getElementById('spans').innerHTML = spans.map((s, i) => `
+    <details ${s.status === 'error' ? 'open' : ''} class="span-card ${s.status}">
+      <summary>
+        <span class="kind">${s.kind}</span>
+        <span class="name">${escapeHtml(s.name)}</span>
+        <span class="muted small">${s.duration_ms != null ? s.duration_ms + ' ms' : ''}</span>
+        <span class="badge ${s.status}">${s.status}</span>
+      </summary>
+      ${s.error_type ? `<div class="err"><b>${escapeHtml(s.error_type)}:</b> ${escapeHtml(s.error_message||'')}</div>` : ''}
+      <div class="io">
+        ${s.input ? `<div><h4>Input</h4><pre>${escapeHtml(JSON.stringify(s.input, null, 2))}</pre></div>` : ''}
+        ${s.output ? `<div><h4>Output</h4><pre>${escapeHtml(JSON.stringify(s.output, null, 2))}</pre></div>` : ''}
+        ${s.attrs ? `<div><h4>Attrs</h4><pre>${escapeHtml(JSON.stringify(s.attrs, null, 2))}</pre></div>` : ''}
+      </div>
+    </details>
+  `).join('');
+}
+loadTrace();
+</script>
+{% endblock %}

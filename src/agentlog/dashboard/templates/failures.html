@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Failure clusters — agentlog{% endblock %}
+{% block content %}
+<section>
+  <h1>Failure clusters</h1>
+  <p class="muted">Where agents tend to fail across all recorded traces.</p>
+
+  <div class="cards">
+    <div class="card">
+      <h2>Failure rate by span</h2>
+      <p class="muted small">Bars sorted by error rate. Click a bar to filter the graph below.</p>
+      <div id="bars"></div>
+    </div>
+
+    <div class="card">
+      <h2>Step at which traces failed</h2>
+      <p class="muted small">For each failed trace, the position of the failing span.</p>
+      <div id="failsteps"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Call graph</h2>
+    <p class="muted small">
+      Nodes = span names sized by call volume and colored by error rate (red = more failures).
+      Edges = observed transitions, thicker = more frequent.
+    </p>
+    <svg id="graph" width="100%" height="520"></svg>
+  </div>
+</section>
+
+<script src="https://unpkg.com/d3@7/dist/d3.min.js"></script>
+<script>
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+(async () => {
+  const r = await fetch('/api/failure-graph');
+  const d = await r.json();
+
+  // ---- bar chart: per-span error rate ----
+  const bars = d.nodes
+    .filter(n => n.total > 0)
+    .sort((a, b) => b.error_rate - a.error_rate);
+  const barsEl = document.getElementById('bars');
+  if (!bars.length) {
+    barsEl.innerHTML = '<p class="muted">No span data yet.</p>';
+  } else {
+    barsEl.innerHTML = bars.map(n => {
+      const pct = (n.error_rate * 100).toFixed(0);
+      return `
+        <div class="bar-row">
+          <div class="bar-label" title="${escapeHtml(n.name)}">${escapeHtml(n.name)}</div>
+          <div class="bar-track"><div class="bar-fill" style="width:${Math.max(1, pct)}%"></div></div>
+          <div class="bar-stat">${pct}% <span class="muted small">(${n.errors}/${n.total})</span></div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // ---- failure step distribution ----
+  const fs = d.fail_steps;
+  const fsEl = document.getElementById('failsteps');
+  if (!fs.length) {
+    fsEl.innerHTML = '<p class="muted">No failed traces yet.</p>';
+  } else {
+    const max = Math.max(...fs.map(s => s.count));
+    fsEl.innerHTML = fs.map(s => `
+      <div class="bar-row">
+        <div class="bar-label">step ${s.step + 1}</div>
+        <div class="bar-track"><div class="bar-fill alt" style="width:${(s.count/max)*100}%"></div></div>
+        <div class="bar-stat">${s.count}</div>
+      </div>
+    `).join('');
+  }
+
+  // ---- call graph (force-directed) ----
+  drawGraph(d);
+})();
+
+function drawGraph(d) {
+  const svg = d3.select('#graph');
+  svg.selectAll('*').remove();
+  if (!d.nodes.length) {
+    svg.append('text').attr('x', 20).attr('y', 40).attr('fill', '#888').text('No nodes yet.');
+    return;
+  }
+  const width = svg.node().clientWidth || 800;
+  const height = +svg.attr('height');
+  const nodeByName = new Map(d.nodes.map(n => [n.name, n]));
+  const nodes = d.nodes.map(n => ({...n, id: n.name}));
+  const edges = d.edges
+    .filter(e => nodeByName.has(e.source) && nodeByName.has(e.target))
+    .map(e => ({...e}));
+
+  const maxCount = Math.max(...edges.map(e => e.count), 1);
+  const maxTotal = Math.max(...nodes.map(n => n.total), 1);
+
+  const color = d3.scaleLinear()
+    .domain([0, 0.5, 1])
+    .range(['#3a7d3a', '#caa024', '#c84040']);
+
+  svg.append('defs').append('marker')
+    .attr('id', 'arrow')
+    .attr('viewBox', '0 -5 10 10')
+    .attr('refX', 18)
+    .attr('refY', 0)
+    .attr('markerWidth', 6)
+    .attr('markerHeight', 6)
+    .attr('orient', 'auto')
+    .append('path')
+    .attr('d', 'M0,-5L10,0L0,5')
+    .attr('fill', '#888');
+
+  const link = svg.append('g').attr('stroke-opacity', 0.55).selectAll('line')
+    .data(edges).join('line')
+    .attr('stroke', '#888')
+    .attr('stroke-width', e => 1 + (e.count / maxCount) * 4)
+    .attr('marker-end', 'url(#arrow)');
+
+  const node = svg.append('g').selectAll('g')
+    .data(nodes).join('g')
+    .call(d3.drag()
+      .on('start', (event, dt) => { if (!event.active) sim.alphaTarget(0.3).restart(); dt.fx = dt.x; dt.fy = dt.y; })
+      .on('drag', (event, dt) => { dt.fx = event.x; dt.fy = event.y; })
+      .on('end', (event, dt) => { if (!event.active) sim.alphaTarget(0); dt.fx = null; dt.fy = null; }));
+
+  node.append('circle')
+    .attr('r', n => 6 + Math.sqrt(n.total / maxTotal) * 18)
+    .attr('fill', n => color(n.error_rate))
+    .attr('stroke', '#111')
+    .attr('stroke-width', 1.2);
+
+  node.append('text')
+    .attr('x', n => 9 + Math.sqrt(n.total / maxTotal) * 18)
+    .attr('y', 4)
+    .attr('font-size', 11)
+    .attr('fill', '#ddd')
+    .text(n => n.name.length > 28 ? n.name.slice(0, 26) + '…' : n.name);
+
+  node.append('title')
+    .text(n => `${n.name}\ntotal: ${n.total}\nerrors: ${n.errors} (${(n.error_rate*100).toFixed(0)}%)\navg: ${n.avg_ms ?? '—'} ms`);
+
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(edges).id(d => d.id).distance(90).strength(0.4))
+    .force('charge', d3.forceManyBody().strength(-260))
+    .force('center', d3.forceCenter(width / 2, height / 2))
+    .force('collide', d3.forceCollide().radius(28));
+
+  sim.on('tick', () => {
+    link
+      .attr('x1', e => e.source.x).attr('y1', e => e.source.y)
+      .attr('x2', e => e.target.x).attr('y2', e => e.target.y);
+    node.attr('transform', n => `translate(${n.x},${n.y})`);
+  });
+}
+</script>
+{% endblock %}
