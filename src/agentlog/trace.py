@@ -9,8 +9,9 @@ import functools
 import inspect
 import time
 import traceback
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import Any, Callable, Iterator, TypeVar
+from typing import Any, TypeVar
 
 from agentlog import storage
 from agentlog._ctx import current_span_id as _current_span_id

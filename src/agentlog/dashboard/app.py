@@ -159,7 +159,7 @@ async def api_failure_graph():
         ).fetchall()
         # transitions: ordered spans within each trace
         span_rows = conn.execute(
-            """SELECT trace_id, name, status, started_at
+            """SELECT trace_id, name, status, started_at, parent_id
                FROM spans
                ORDER BY trace_id, started_at"""
         ).fetchall()
@@ -171,7 +171,9 @@ async def api_failure_graph():
 
     by_trace: dict[str, list[dict]] = defaultdict(list)
     for r in span_rows:
-        by_trace[r["trace_id"]].append({"name": r["name"], "status": r["status"]})
+        by_trace[r["trace_id"]].append(
+            {"name": r["name"], "status": r["status"], "parent_id": r["parent_id"]}
+        )
 
     transitions: Counter = Counter()
     for spans in by_trace.values():
@@ -181,8 +183,9 @@ async def api_failure_graph():
     fail_step_index: Counter = Counter()
     failure_node: Counter = Counter()
     for tid in failed_trace_ids:
-        spans = by_trace.get(tid, [])
-        for i, s in enumerate(spans):
+        # exclude the trace-root span — it always errors with its child, double-counting
+        child_spans = [s for s in by_trace.get(tid, []) if s["parent_id"] is not None]
+        for i, s in enumerate(child_spans):
             if s["status"] == "error":
                 fail_step_index[i] += 1
                 failure_node[s["name"]] += 1

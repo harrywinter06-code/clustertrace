@@ -1,7 +1,7 @@
 """agentlog — zero-config local-first instrumentation for LLM agents."""
 
-from agentlog.trace import span, tool_call, trace
 from agentlog.storage import get_db_path
+from agentlog.trace import span, tool_call, trace
 
 __all__ = ["trace", "span", "tool_call", "wrap_anthropic", "get_db_path"]
 __version__ = "0.1.0"

@@ -14,6 +14,7 @@ import sys
 import time
 from pathlib import Path
 
+
 # Load .env from this directory or parent if present (developer convenience).
 def _load_env() -> None:
     for candidate in [Path(__file__).parent / ".env", Path(__file__).parent.parent / ".env"]:
@@ -23,7 +24,9 @@ def _load_env() -> None:
                 if not line or line.startswith("#") or "=" not in line:
                     continue
                 k, v = line.split("=", 1)
-                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+                k, v = k.strip(), v.strip().strip('"').strip("'")
+                if not os.environ.get(k):  # treat empty value as unset
+                    os.environ[k] = v
 
 
 _load_env()
@@ -31,7 +34,8 @@ _load_env()
 if not os.environ.get("ANTHROPIC_API_KEY"):
     raise SystemExit("ANTHROPIC_API_KEY not set. Put it in a .env at the repo root or export it.")
 
-from examples.research_agent import research  # noqa: E402
+sys.path.insert(0, str(Path(__file__).parent))
+from research_agent import research  # noqa: E402
 
 QUERIES = [
     "sparse attention and hallucination",
