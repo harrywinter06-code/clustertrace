@@ -1,7 +1,7 @@
 [project]
 name = "agentlog"
-version = "0.1.0"
-description = "Zero-config local-first instrumentation for LLM agents — decorator-based traces, SQLite storage, dashboard with failure-pattern visualization."
+version = "0.2.0"
+description = "Local-first LLM agent tracing — decorator-based, SQLite, and a dashboard that clusters traces by execution pattern so you can see which patterns fail."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -25,6 +25,7 @@ dependencies = [
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.40"]
+openai = ["openai>=1.30"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -51,7 +52,8 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
-ignore = ["E501"]
+# E501: line length; B008: FastAPI Query() defaults are idiomatic; E701: `with x: pass` test stubs
+ignore = ["E501", "B008", "E701", "E702"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

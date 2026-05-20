@@ -15,12 +15,12 @@ import json
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from agentlog import storage
+from agentlog import cluster, storage
 
 _HERE = Path(__file__).parent
 _TEMPLATES = Jinja2Templates(directory=str(_HERE / "templates"))
@@ -66,6 +66,57 @@ async def failures(request: Request):
     return _TEMPLATES.TemplateResponse(request, "failures.html", {})
 
 
+@app.get("/clusters", response_class=HTMLResponse)
+async def clusters_page(request: Request):
+    return _TEMPLATES.TemplateResponse(request, "clusters.html", {})
+
+
+@app.get("/api/clusters")
+async def api_clusters(limit: int = 50, backfill: bool = True):
+    if backfill:
+        try:
+            cluster.backfill_signatures()
+        except Exception:
+            pass
+    out = []
+    for cl in cluster.list_clusters(limit=limit):
+        out.append(
+            {
+                "signature": cl.signature,
+                "sig_hash": cl.sig_hash,
+                "count": cl.count,
+                "errors": cl.error_count,
+                "error_rate": cl.error_rate,
+                "avg_duration_ms": cl.avg_duration_ms,
+                "representative_trace_id": cl.representative_trace_id,
+                "pattern": [{"name": n, "status": s} for n, s in cl.pattern],
+            }
+        )
+    return {"clusters": out}
+
+
+@app.get("/api/failure-summary")
+async def api_failure_summary():
+    try:
+        cluster.backfill_signatures()
+    except Exception:
+        pass
+    return cluster.failure_summary()
+
+
+@app.get("/api/tags")
+async def api_tags():
+    """All known tag keys + their value counts. Powers the filter dropdown."""
+    with storage.connect() as conn:
+        rows = conn.execute(
+            "SELECT key, value, COUNT(*) c FROM trace_tags GROUP BY key, value ORDER BY key, c DESC"
+        ).fetchall()
+    by_key: dict[str, list[dict]] = {}
+    for r in rows:
+        by_key.setdefault(r["key"], []).append({"value": r["value"], "count": r["c"]})
+    return {"tags": by_key}
+
+
 @app.get("/api/stats")
 async def api_stats():
     with storage.connect() as conn:
@@ -91,16 +142,45 @@ async def api_stats():
 
 
 @app.get("/api/traces")
-async def api_traces(limit: int = 50, offset: int = 0):
+async def api_traces(
+    limit: int = 50,
+    offset: int = 0,
+    status: str | None = None,
+    q: str | None = Query(None, description="case-insensitive name match"),
+    tag: list[str] | None = Query(None, description="repeat as ?tag=key=value"),
+):
     limit = max(1, min(limit, 500))
+    where: list[str] = []
+    params: list = []
+    if status in ("ok", "error", "running"):
+        where.append("status = ?")
+        params.append(status)
+    if q:
+        where.append("LOWER(name) LIKE ?")
+        params.append(f"%{q.lower()}%")
+    join_tag = ""
+    if tag:
+        # AND-style filter: trace must have ALL specified tags.
+        for i, kv in enumerate(tag):
+            if "=" not in kv:
+                continue
+            k, v = kv.split("=", 1)
+            alias = f"tt{i}"
+            join_tag += f" INNER JOIN trace_tags {alias} ON {alias}.trace_id = traces.id AND {alias}.key = ? AND {alias}.value = ?"
+            params.extend([k, v])
+    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+    sql = f"""SELECT traces.id, traces.name, traces.started_at, traces.ended_at,
+                     traces.status, traces.error_type, traces.error_message, traces.signature
+              FROM traces {join_tag}
+              {where_sql}
+              ORDER BY traces.started_at DESC
+              LIMIT ? OFFSET ?"""
+    params.extend([limit, offset])
     with storage.connect() as conn:
-        rows = conn.execute(
-            """SELECT id, name, started_at, ended_at, status, error_type, error_message
-               FROM traces
-               ORDER BY started_at DESC
-               LIMIT ? OFFSET ?""",
-            (limit, offset),
-        ).fetchall()
+        rows = conn.execute(sql, params).fetchall()
+        # also count total matching (without limit) for pagination
+        count_sql = f"SELECT COUNT(*) FROM traces {join_tag} {where_sql}"
+        total = conn.execute(count_sql, params[:-2]).fetchone()[0]
     out = []
     for r in rows:
         d = _row_to_dict(r)
@@ -109,7 +189,7 @@ async def api_traces(limit: int = 50, offset: int = 0):
         else:
             d["duration_ms"] = None
         out.append(d)
-    return {"traces": out, "limit": limit, "offset": offset}
+    return {"traces": out, "limit": limit, "offset": offset, "total": total}
 
 
 @app.get("/api/trace/{trace_id}")
@@ -122,6 +202,9 @@ async def api_trace(trace_id: str):
             """SELECT * FROM spans WHERE trace_id = ? ORDER BY started_at ASC""",
             (trace_id,),
         ).fetchall()
+        tag_rows = conn.execute(
+            "SELECT key, value FROM trace_tags WHERE trace_id = ?", (trace_id,)
+        ).fetchall()
     spans_out = []
     for s in spans:
         d = _row_to_dict(s)
@@ -133,7 +216,11 @@ async def api_trace(trace_id: str):
         else:
             d["duration_ms"] = None
         spans_out.append(d)
-    return {"trace": _row_to_dict(trace), "spans": spans_out}
+    return {
+        "trace": _row_to_dict(trace),
+        "spans": spans_out,
+        "tags": {r["key"]: r["value"] for r in tag_rows},
+    }
 
 
 @app.get("/api/failure-graph")

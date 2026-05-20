@@ -18,6 +18,20 @@ from agentlog._ctx import current_span_id as _current_span_id
 from agentlog._ctx import current_trace_id as _current_trace_id
 from agentlog._ctx import new_id as _new_id
 
+
+def tag(key: str, value: str | int | float | bool) -> None:
+    """Attach a key=value tag to the currently active trace.
+
+    No-op if called outside a trace. Useful for filtering in the dashboard.
+    """
+    tid = _current_trace_id.get()
+    if tid is None:
+        return
+    try:
+        storage.add_trace_tag(tid, str(key), str(value))
+    except Exception:
+        pass
+
 F = TypeVar("F", bound=Callable[..., Any])
 
 
@@ -43,10 +57,17 @@ def _exc_info(exc: BaseException) -> tuple[str, str]:
     return error_type, error_message
 
 
-def trace(_fn: F | None = None, *, name: str | None = None) -> Any:
+def trace(
+    _fn: F | None = None,
+    *,
+    name: str | None = None,
+    tags: dict[str, Any] | None = None,
+) -> Any:
     """Capture inputs, outputs, exceptions, and duration of a function.
 
-    Use as @trace, @trace(name="..."), works for sync and async.
+    Use as @trace, @trace(name="..."), or @trace(tags={"agent": "researcher"}).
+    Works for sync and async. Tags attach only to the root trace; nested calls
+    inside a running trace ignore them (use `agentlog.tag()` for that).
     """
 
     def decorator(fn: F) -> F:
@@ -57,7 +78,7 @@ def trace(_fn: F | None = None, *, name: str | None = None) -> Any:
 
             @functools.wraps(fn)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
-                async with _async_call_span(fn, span_name, args, kwargs) as set_result:
+                async with _async_call_span(fn, span_name, args, kwargs, tags) as set_result:
                     result = await fn(*args, **kwargs)
                     set_result(result)
                     return result
@@ -66,7 +87,7 @@ def trace(_fn: F | None = None, *, name: str | None = None) -> Any:
 
         @functools.wraps(fn)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
-            with _sync_call_span(fn, span_name, args, kwargs) as set_result:
+            with _sync_call_span(fn, span_name, args, kwargs, tags) as set_result:
                 result = fn(*args, **kwargs)
                 set_result(result)
                 return result
@@ -80,7 +101,11 @@ def trace(_fn: F | None = None, *, name: str | None = None) -> Any:
 
 @contextmanager
 def _sync_call_span(
-    fn: Callable[..., Any], span_name: str, args: tuple, kwargs: dict[str, Any]
+    fn: Callable[..., Any],
+    span_name: str,
+    args: tuple,
+    kwargs: dict[str, Any],
+    tags: dict[str, Any] | None = None,
 ) -> Iterator[Callable[[Any], None]]:
     trace_id = _current_trace_id.get()
     is_root = trace_id is None
@@ -92,6 +117,9 @@ def _sync_call_span(
         trace_id = _new_id()
         storage.insert_trace(trace_id, span_name, started_at)
         trace_tok = _current_trace_id.set(trace_id)
+        if tags:
+            for k, v in tags.items():
+                storage.add_trace_tag(trace_id, str(k), str(v))
     else:
         trace_tok = None
 
@@ -147,11 +175,13 @@ class _AsyncCallSpan:
         span_name: str,
         args: tuple,
         kwargs: dict[str, Any],
+        tags: dict[str, Any] | None = None,
     ) -> None:
         self.fn = fn
         self.span_name = span_name
         self.args = args
         self.kwargs = kwargs
+        self.tags = tags
         self.captured: dict[str, Any] = {}
         self.trace_id: str | None = None
         self.span_id: str | None = None
@@ -170,6 +200,9 @@ class _AsyncCallSpan:
             trace_id = _new_id()
             storage.insert_trace(trace_id, self.span_name, started_at)
             self.trace_tok = _current_trace_id.set(trace_id)
+            if self.tags:
+                for k, v in self.tags.items():
+                    storage.add_trace_tag(trace_id, str(k), str(v))
 
         self.trace_id = trace_id
         storage.insert_span(
@@ -229,8 +262,8 @@ class _AsyncCallSpan:
         return False
 
 
-def _async_call_span(fn, span_name, args, kwargs):
-    return _AsyncCallSpan(fn, span_name, args, kwargs)
+def _async_call_span(fn, span_name, args, kwargs, tags=None):
+    return _AsyncCallSpan(fn, span_name, args, kwargs, tags)
 
 
 @contextmanager

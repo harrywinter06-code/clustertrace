@@ -4,43 +4,103 @@
 <section>
   <div class="row between">
     <h1>Recent traces</h1>
-    <button id="refresh-btn" class="btn">Refresh</button>
+    <div class="filter-row">
+      <input id="q-input" class="input" type="search" placeholder="search by name…" autocomplete="off">
+      <select id="status-input" class="input">
+        <option value="">all statuses</option>
+        <option value="ok">ok</option>
+        <option value="error">error</option>
+        <option value="running">running</option>
+      </select>
+      <select id="tag-input" class="input"><option value="">all tags</option></select>
+      <label class="muted small"><input type="checkbox" id="live-input" checked> live</label>
+    </div>
   </div>
+  <div id="trace-count" class="muted small" style="margin: 4px 0 8px;"></div>
   <table class="traces">
     <thead>
-      <tr><th>Started</th><th>Name</th><th>Status</th><th>Duration</th><th>Error</th></tr>
+      <tr><th>Started</th><th>Name</th><th>Tags</th><th>Status</th><th>Duration</th><th>Error</th></tr>
     </thead>
-    <tbody id="traces-body"><tr><td colspan="5" class="muted">loading…</td></tr></tbody>
+    <tbody id="traces-body"><tr><td colspan="6" class="muted">loading…</td></tr></tbody>
   </table>
 </section>
 <script>
-function fmtTime(ts) {
-  if (!ts) return '';
-  const d = new Date(ts * 1000);
-  return d.toLocaleString();
-}
-async function loadTraces() {
-  const r = await fetch('/api/traces?limit=50');
-  const data = await r.json();
-  const body = document.getElementById('traces-body');
-  if (!data.traces.length) {
-    body.innerHTML = '<tr><td colspan="5" class="muted">No traces yet. Decorate a function with <code>@agentlog.trace</code> and run it.</td></tr>';
-    return;
-  }
-  body.innerHTML = data.traces.map(t => `
-    <tr class="${t.status === 'error' ? 'row-error' : ''}">
-      <td class="muted small">${fmtTime(t.started_at)}</td>
-      <td><a href="/trace/${t.id}">${escapeHtml(t.name)}</a></td>
-      <td><span class="badge ${t.status}">${t.status}</span></td>
-      <td>${t.duration_ms != null ? t.duration_ms + ' ms' : '—'}</td>
-      <td class="muted small">${t.error_type ? escapeHtml(t.error_type) + ': ' + escapeHtml((t.error_message||'').slice(0,80)) : ''}</td>
-    </tr>
-  `).join('');
-}
+function fmtTime(ts) { if (!ts) return ''; return new Date(ts * 1000).toLocaleString(); }
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
-document.getElementById('refresh-btn').addEventListener('click', loadTraces);
-loadTraces();
+
+let tagsByTrace = {};
+async function loadTagDropdown() {
+  const r = await fetch('/api/tags');
+  const data = await r.json();
+  const sel = document.getElementById('tag-input');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">all tags</option>' + Object.entries(data.tags).flatMap(([k, vs]) =>
+    vs.map(({value, count}) => `<option value="${escapeHtml(k)}=${escapeHtml(value)}">${escapeHtml(k)}=${escapeHtml(value)} (${count})</option>`)
+  ).join('');
+  sel.value = cur;
+}
+
+async function loadTraces() {
+  const q = document.getElementById('q-input').value.trim();
+  const status = document.getElementById('status-input').value;
+  const tag = document.getElementById('tag-input').value;
+  const params = new URLSearchParams({ limit: '50' });
+  if (q) params.set('q', q);
+  if (status) params.set('status', status);
+  if (tag) params.set('tag', tag);
+  const r = await fetch('/api/traces?' + params);
+  const data = await r.json();
+
+  document.getElementById('trace-count').textContent =
+    `${data.traces.length} of ${data.total} traces`;
+  const body = document.getElementById('traces-body');
+  if (!data.traces.length) {
+    body.innerHTML = '<tr><td colspan="6" class="muted">No traces match. Decorate a function with <code>@agentlog.trace</code> and run it.</td></tr>';
+    return;
+  }
+
+  // Fetch tags for visible traces in parallel (cached by id).
+  await Promise.all(data.traces.map(async t => {
+    if (tagsByTrace[t.id]) return;
+    try {
+      const td = await fetch(`/api/trace/${t.id}`).then(r => r.json());
+      tagsByTrace[t.id] = td.tags || {};
+    } catch (e) { tagsByTrace[t.id] = {}; }
+  }));
+
+  body.innerHTML = data.traces.map(t => {
+    const tags = tagsByTrace[t.id] || {};
+    const tagsHtml = Object.entries(tags).map(([k, v]) =>
+      `<span class="tag-chip">${escapeHtml(k)}=${escapeHtml(v)}</span>`).join(' ');
+    return `
+    <tr class="${t.status === 'error' ? 'row-error' : ''}">
+      <td class="muted small">${fmtTime(t.started_at)}</td>
+      <td><a href="/trace/${t.id}">${escapeHtml(t.name)}</a></td>
+      <td>${tagsHtml || '<span class="muted small">—</span>'}</td>
+      <td><span class="badge ${t.status}">${t.status}</span></td>
+      <td>${t.duration_ms != null ? t.duration_ms + ' ms' : '—'}</td>
+      <td class="muted small">${t.error_type ? escapeHtml(t.error_type) + ': ' + escapeHtml((t.error_message||'').slice(0,80)) : ''}</td>
+    </tr>`;
+  }).join('');
+}
+
+let liveTimer = null;
+function rearmLive() {
+  if (liveTimer) clearInterval(liveTimer);
+  if (document.getElementById('live-input').checked) {
+    liveTimer = setInterval(loadTraces, 4000);
+  }
+}
+
+document.getElementById('q-input').addEventListener('input', () => { tagsByTrace = {}; loadTraces(); });
+document.getElementById('status-input').addEventListener('change', () => { loadTraces(); });
+document.getElementById('tag-input').addEventListener('change', () => { loadTraces(); });
+document.getElementById('live-input').addEventListener('change', rearmLive);
+
+loadTagDropdown();
+loadTraces().then(rearmLive);
+setInterval(loadTagDropdown, 15000);
 </script>
 {% endblock %}

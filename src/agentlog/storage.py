@@ -10,48 +10,66 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-_SCHEMA_VERSION = 1
+# Each migration is a no-op if already applied (guarded by schema_meta.version).
+# To add a migration: append a new SQL string and bump _SCHEMA_VERSION.
+_MIGRATIONS: list[str] = [
+    # v1 — initial schema
+    """
+    CREATE TABLE IF NOT EXISTS traces (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        started_at REAL NOT NULL,
+        ended_at REAL,
+        status TEXT NOT NULL DEFAULT 'running',
+        error_type TEXT,
+        error_message TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_traces_started_at ON traces(started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_traces_status ON traces(status);
 
-_SCHEMA = """
+    CREATE TABLE IF NOT EXISTS spans (
+        id TEXT PRIMARY KEY,
+        trace_id TEXT NOT NULL,
+        parent_id TEXT,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        started_at REAL NOT NULL,
+        ended_at REAL,
+        status TEXT NOT NULL DEFAULT 'running',
+        error_type TEXT,
+        error_message TEXT,
+        input_json TEXT,
+        output_json TEXT,
+        attrs_json TEXT,
+        FOREIGN KEY (trace_id) REFERENCES traces(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_spans_trace_id ON spans(trace_id);
+    CREATE INDEX IF NOT EXISTS idx_spans_parent_id ON spans(parent_id);
+    CREATE INDEX IF NOT EXISTS idx_spans_name ON spans(name);
+    CREATE INDEX IF NOT EXISTS idx_spans_status ON spans(status);
+    """,
+    # v2 — tags + signature columns for clustering
+    """
+    CREATE TABLE IF NOT EXISTS trace_tags (
+        trace_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        PRIMARY KEY (trace_id, key),
+        FOREIGN KEY (trace_id) REFERENCES traces(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_trace_tags_kv ON trace_tags(key, value);
+
+    ALTER TABLE traces ADD COLUMN signature TEXT;
+    CREATE INDEX IF NOT EXISTS idx_traces_signature ON traces(signature);
+    """,
+]
+_SCHEMA_VERSION = len(_MIGRATIONS)
+
+_BOOTSTRAP = """
 CREATE TABLE IF NOT EXISTS schema_meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-
-CREATE TABLE IF NOT EXISTS traces (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    started_at REAL NOT NULL,
-    ended_at REAL,
-    status TEXT NOT NULL DEFAULT 'running',
-    error_type TEXT,
-    error_message TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_traces_started_at ON traces(started_at DESC);
-CREATE INDEX IF NOT EXISTS idx_traces_status ON traces(status);
-
-CREATE TABLE IF NOT EXISTS spans (
-    id TEXT PRIMARY KEY,
-    trace_id TEXT NOT NULL,
-    parent_id TEXT,
-    name TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    started_at REAL NOT NULL,
-    ended_at REAL,
-    status TEXT NOT NULL DEFAULT 'running',
-    error_type TEXT,
-    error_message TEXT,
-    input_json TEXT,
-    output_json TEXT,
-    attrs_json TEXT,
-    FOREIGN KEY (trace_id) REFERENCES traces(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_spans_trace_id ON spans(trace_id);
-CREATE INDEX IF NOT EXISTS idx_spans_parent_id ON spans(parent_id);
-CREATE INDEX IF NOT EXISTS idx_spans_name ON spans(name);
-CREATE INDEX IF NOT EXISTS idx_spans_status ON spans(status);
 """
 
 
@@ -76,13 +94,16 @@ def _ensure_initialized(path: Path) -> None:
             return
         path.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(str(path)) as conn:
-            conn.executescript(_SCHEMA)
+            conn.executescript(_BOOTSTRAP)
             row = conn.execute(
                 "SELECT value FROM schema_meta WHERE key = 'version'"
             ).fetchone()
-            if row is None:
+            applied = int(row[0]) if row else 0
+            for i in range(applied, _SCHEMA_VERSION):
+                conn.executescript(_MIGRATIONS[i])
+            if applied < _SCHEMA_VERSION:
                 conn.execute(
-                    "INSERT INTO schema_meta(key, value) VALUES('version', ?)",
+                    "INSERT OR REPLACE INTO schema_meta(key, value) VALUES('version', ?)",
                     (str(_SCHEMA_VERSION),),
                 )
             conn.commit()
@@ -110,13 +131,36 @@ def reset_initialized_cache() -> None:
         _initialized.clear()
 
 
+def _max_payload_bytes() -> int:
+    """Per-field cap on serialized JSON. Override via $AGENTLOG_MAX_PAYLOAD_BYTES."""
+    raw = os.environ.get("AGENTLOG_MAX_PAYLOAD_BYTES")
+    if not raw:
+        return 32_768  # 32 KB default — enough for normal LLM I/O, caps the pathological cases
+    try:
+        return max(1024, int(raw))
+    except ValueError:
+        return 32_768
+
+
 def _dumps(obj: Any) -> str | None:
     if obj is None:
         return None
     try:
-        return json.dumps(obj, default=_fallback_serializer)
+        s = json.dumps(obj, default=_fallback_serializer)
     except (TypeError, ValueError):
-        return json.dumps({"__repr__": repr(obj)[:1000]})
+        s = json.dumps({"__repr__": repr(obj)[:1000]})
+    cap = _max_payload_bytes()
+    if len(s) > cap:
+        # Truncate the JSON text and wrap it in a marker — keeps the field readable
+        # without trying to parse a partial JSON value back.
+        return json.dumps(
+            {
+                "__truncated": True,
+                "original_bytes": len(s),
+                "preview": s[: cap - 200],
+            }
+        )
+    return s
 
 
 def _fallback_serializer(o: Any) -> Any:
@@ -155,6 +199,35 @@ def finish_trace(
             "UPDATE traces SET ended_at = ?, status = ?, error_type = ?, error_message = ? WHERE id = ?",
             (ended_at, status, error_type, error_message, trace_id),
         )
+    # Compute the structural signature for clustering. Lazy import to avoid
+    # a static cycle between storage <-> cluster. Best-effort; never raise.
+    try:
+        from agentlog import cluster
+
+        cluster.compute_and_store_signature(trace_id)
+    except Exception:
+        pass
+
+
+def set_trace_signature(trace_id: str, signature: str) -> None:
+    with connect() as conn:
+        conn.execute("UPDATE traces SET signature = ? WHERE id = ?", (signature, trace_id))
+
+
+def add_trace_tag(trace_id: str, key: str, value: str) -> None:
+    with connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO trace_tags(trace_id, key, value) VALUES(?, ?, ?)",
+            (trace_id, key, value),
+        )
+
+
+def get_trace_tags(trace_id: str) -> dict[str, str]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT key, value FROM trace_tags WHERE trace_id = ?", (trace_id,)
+        ).fetchall()
+    return {r["key"]: r["value"] for r in rows}
 
 
 def insert_span(

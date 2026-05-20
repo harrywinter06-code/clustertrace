@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Clusters — agentlog{% endblock %}
+{% block content %}
+<section>
+  <h1>Execution clusters</h1>
+  <p class="muted">Traces grouped by structural signature (sequence of span names + statuses, consecutive duplicates collapsed). Each row is a distinct way your agent runs.</p>
+
+  <div class="cards" style="grid-template-columns: 2fr 1fr;">
+    <div class="card" id="summary-card">
+      <h2>Failure summary</h2>
+      <div id="summary" class="muted">loading…</div>
+    </div>
+    <div class="card">
+      <h2>Top failing nodes</h2>
+      <div id="failing-nodes" class="muted small">loading…</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top: 16px;">
+    <h2>Common failure prefix</h2>
+    <p class="muted small">The longest prefix of (span name, status) shared by every failed trace — often the actual root cause path.</p>
+    <div id="prefix" class="prefix-row">—</div>
+  </div>
+
+  <h2 style="margin-top:24px;">Clusters by frequency</h2>
+  <div id="clusters-list" class="muted">loading…</div>
+</section>
+
+<script>
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function pill(name, status) {
+  return `<span class="pill ${status}" title="${escapeHtml(name)} (${status})">${escapeHtml(name)}</span>`;
+}
+async function load() {
+  const [clRes, summRes] = await Promise.all([
+    fetch('/api/clusters?limit=80').then(r => r.json()),
+    fetch('/api/failure-summary').then(r => r.json()),
+  ]);
+
+  // summary
+  const s = summRes;
+  const overallPct = (s.overall_failure_rate * 100).toFixed(1);
+  document.getElementById('summary').innerHTML = `
+    <div><b>${s.traces_total}</b> traces · <b>${s.traces_failed}</b> failed (<b>${overallPct}%</b>)</div>
+    <div class="muted small">${s.n_clusters} distinct execution patterns</div>
+  `;
+
+  // top failing nodes
+  if (!s.top_failing_nodes.length) {
+    document.getElementById('failing-nodes').innerHTML = '<span class="muted">No failures yet.</span>';
+  } else {
+    document.getElementById('failing-nodes').innerHTML = s.top_failing_nodes.map(n => `
+      <div class="node-row">
+        <span class="pill ${n.status}" style="margin-right:6px;">${escapeHtml(n.name)}</span>
+        <span class="muted">×${n.count}</span>
+      </div>
+    `).join('');
+  }
+
+  // common failure prefix
+  const prefix = s.common_failure_prefix;
+  const prefEl = document.getElementById('prefix');
+  if (!prefix.length) {
+    prefEl.innerHTML = '<span class="muted">No common failure prefix (either no failures, or failures take different paths).</span>';
+  } else {
+    prefEl.innerHTML = prefix.map(p => pill(p.name, p.status)).join(' <span class="muted">→</span> ');
+  }
+
+  // cluster list
+  const cl = clRes.clusters;
+  if (!cl.length) {
+    document.getElementById('clusters-list').innerHTML = '<p class="muted">No clusters yet. Run a few traces.</p>';
+    return;
+  }
+  const maxCount = Math.max(...cl.map(c => c.count));
+  document.getElementById('clusters-list').innerHTML = cl.map(c => {
+    const errPct = (c.error_rate * 100).toFixed(0);
+    const errClass = c.error_rate >= 0.5 ? 'high' : c.error_rate > 0 ? 'mid' : 'none';
+    const bar = (c.count / maxCount) * 100;
+    return `
+      <div class="cluster-card ${errClass}">
+        <div class="cluster-meta">
+          <div class="cluster-counts">
+            <span class="cluster-count">${c.count}×</span>
+            <span class="cluster-err ${errClass}">${c.errors}/${c.count} fail (${errPct}%)</span>
+            <span class="muted small">avg ${c.avg_duration_ms != null ? c.avg_duration_ms + ' ms' : '—'}</span>
+            <a class="muted small" href="/trace/${c.representative_trace_id}">sample trace →</a>
+          </div>
+          <div class="cluster-bar"><div class="cluster-bar-fill" style="width:${bar}%"></div></div>
+        </div>
+        <div class="cluster-pattern">${c.pattern.map(p => pill(p.name, p.status)).join('<span class="arrow">›</span>')}</div>
+      </div>
+    `;
+  }).join('');
+}
+load();
+</script>
+{% endblock %}

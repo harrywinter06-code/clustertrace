@@ -84,3 +84,83 @@ def test_unknown_trace_returns_404():
     client = TestClient(app)
     r = client.get("/api/trace/nope")
     assert r.status_code == 404
+
+
+def test_clusters_endpoint_groups_traces():
+    @agentlog.trace
+    def path_a():
+        with agentlog.span("step1"): pass
+        with agentlog.span("step2"): pass
+
+    @agentlog.trace
+    def path_b():
+        with agentlog.span("step1"): pass
+
+    for _ in range(2): path_a()
+    for _ in range(3): path_b()
+
+    client = TestClient(app)
+    r = client.get("/api/clusters")
+    assert r.status_code == 200
+    clusters = r.json()["clusters"]
+    counts = sorted(c["count"] for c in clusters)
+    assert counts == [2, 3]
+
+
+def test_failure_summary_endpoint():
+    @agentlog.trace
+    def fails():
+        with agentlog.span("a"): pass
+        raise ValueError("nope")
+
+    try: fails()
+    except ValueError: pass
+
+    client = TestClient(app)
+    r = client.get("/api/failure-summary")
+    assert r.status_code == 200
+    s = r.json()
+    assert s["traces_failed"] == 1
+
+
+def test_traces_filter_by_status():
+    @agentlog.trace
+    def good(): pass
+
+    @agentlog.trace
+    def bad(): raise RuntimeError("x")
+
+    good()
+    good()
+    try: bad()
+    except RuntimeError: pass
+
+    client = TestClient(app)
+    assert client.get("/api/traces?status=ok").json()["total"] == 2
+    assert client.get("/api/traces?status=error").json()["total"] == 1
+
+
+def test_traces_filter_by_tag():
+    @agentlog.trace(tags={"agent": "rag"})
+    def a(): pass
+
+    @agentlog.trace(tags={"agent": "tool_use"})
+    def b(): pass
+
+    a(); a(); b()
+    client = TestClient(app)
+    r1 = client.get("/api/traces?tag=agent%3Drag").json()
+    r2 = client.get("/api/traces?tag=agent%3Dtool_use").json()
+    assert r1["total"] == 2
+    assert r2["total"] == 1
+
+
+def test_tags_endpoint_lists_known_keys():
+    @agentlog.trace(tags={"agent": "rag", "v": "1"})
+    def a(): pass
+    a(); a()
+    client = TestClient(app)
+    tags = client.get("/api/tags").json()["tags"]
+    assert "agent" in tags
+    assert tags["agent"][0]["value"] == "rag"
+    assert tags["agent"][0]["count"] == 2
