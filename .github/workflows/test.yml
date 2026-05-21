@@ -21,16 +21,20 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v3
         with:
-          enable-cache: false  # uv.lock is gitignored; nothing to cache
+          enable-cache: false  # uv.lock is gitignored
 
-      - name: Set up Python
+      - name: Set up Python ${{ matrix.python }}
         run: uv python install ${{ matrix.python }}
 
-      - name: Install dependencies
-        run: uv pip install --system -e ".[anthropic,openai,dev]"
+      - name: Create venv + install
+        # Use a venv (not --system) because the runner's host Python is
+        # externally managed (PEP 668) on Ubuntu/macOS.
+        run: |
+          uv venv --python ${{ matrix.python }}
+          uv pip install -e ".[anthropic,openai,dev]"
 
       - name: Lint
-        run: ruff check src tests examples
+        run: uv run ruff check src tests examples
 
       - name: Run tests
-        run: pytest -q
+        run: uv run pytest -q
