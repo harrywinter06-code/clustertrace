@@ -133,25 +133,24 @@ async def api_clusters(
     out = []
     if mode not in ("ordered", "set", "tree_edit"):
         mode = "ordered"
-    if mode == "tree_edit" and threshold is not None:
-        cluster.set_tree_edit_threshold(threshold)
-    try:
-        for cl in cluster.list_clusters(limit=limit, offset=offset, mode=mode):
-            out.append(
-                {
-                    "signature": cl.signature,
-                    "sig_hash": cl.sig_hash,
-                    "count": cl.count,
-                    "errors": cl.error_count,
-                    "error_rate": cl.error_rate,
-                    "avg_duration_ms": cl.avg_duration_ms,
-                    "representative_trace_id": cl.representative_trace_id,
-                    "pattern": [{"name": n, "status": s} for n, s in cl.pattern],
-                }
-            )
-    finally:
-        if mode == "tree_edit" and threshold is not None:
-            cluster.set_tree_edit_threshold(None)
+    # Pass threshold through as a function argument rather than mutating a
+    # module-level global — under concurrent FastAPI requests the global
+    # would race between the set/read/reset sequence.
+    for cl in cluster.list_clusters(
+        limit=limit, offset=offset, mode=mode, threshold=threshold
+    ):
+        out.append(
+            {
+                "signature": cl.signature,
+                "sig_hash": cl.sig_hash,
+                "count": cl.count,
+                "errors": cl.error_count,
+                "error_rate": cl.error_rate,
+                "avg_duration_ms": cl.avg_duration_ms,
+                "representative_trace_id": cl.representative_trace_id,
+                "pattern": [{"name": n, "status": s} for n, s in cl.pattern],
+            }
+        )
     return {"clusters": out, "mode": mode, "limit": limit, "offset": offset}
 
 
@@ -618,6 +617,23 @@ async def options_traces() -> Response:
     return Response(status_code=204, headers=_OTLP_CORS_HEADERS)
 
 
+_DEFAULT_OTLP_MAX_BYTES = 16 * 1024 * 1024  # 16 MiB
+
+
+def _otlp_max_bytes() -> int:
+    """Body cap for /v1/traces. Read per-request so tests can monkeypatch."""
+    import os
+
+    raw = os.environ.get("CLUSTERTRACE_OTLP_MAX_BYTES")
+    if not raw:
+        return _DEFAULT_OTLP_MAX_BYTES
+    try:
+        n = int(raw)
+    except ValueError:
+        return _DEFAULT_OTLP_MAX_BYTES
+    return n if n > 0 else _DEFAULT_OTLP_MAX_BYTES
+
+
 @app.post("/v1/traces")
 async def ingest_traces(request: Request) -> JSONResponse:
     """OTLP/JSON span ingestion.
@@ -625,9 +641,39 @@ async def ingest_traces(request: Request) -> JSONResponse:
     Accepts an `ExportTraceServiceRequest` body, walks every span, and
     delegates each one to `ClustertraceSpanExporter._export_one`. Returns
     an empty `ExportTracePartialSuccess` body (the OTLP success shape).
+
+    Body size is capped at `CLUSTERTRACE_OTLP_MAX_BYTES` (default 16 MiB) so
+    a multi-GB POST cannot OOM the dashboard process. We honor a declared
+    Content-Length up-front, then re-check after the body lands in case a
+    chunked client omitted/lied about it.
     """
+    max_bytes = _otlp_max_bytes()
+
+    # Fast path: if the client advertised Content-Length, reject before
+    # buffering. The bound is also an integer-overflow guard.
+    cl_header = request.headers.get("content-length")
+    if cl_header is not None:
+        try:
+            declared = int(cl_header)
+        except ValueError:
+            declared = -1
+        if declared > max_bytes:
+            return JSONResponse(
+                {"error": f"body exceeds {max_bytes} bytes"},
+                status_code=413,
+                headers=_OTLP_CORS_HEADERS,
+            )
+
+    raw_body = await request.body()
+    if len(raw_body) > max_bytes:
+        return JSONResponse(
+            {"error": f"body exceeds {max_bytes} bytes"},
+            status_code=413,
+            headers=_OTLP_CORS_HEADERS,
+        )
+
     try:
-        payload = await request.json()
+        payload = json.loads(raw_body) if raw_body else {}
     except Exception:
         return JSONResponse(
             {"error": "invalid JSON body"},

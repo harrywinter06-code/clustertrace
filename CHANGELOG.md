@@ -4,6 +4,18 @@ All notable changes to clustertrace. Format roughly follows [Keep a Changelog](h
 
 > **Renamed from `agentlog` to `clustertrace` in v0.5.0** — PyPI's name-similarity check rejected `agentlog` as too close to the existing `agentlogger` package. The new name lands the differentiator (clustering of traces) more directly anyway.
 
+## [0.7.1] — 2026-05-21
+
+### Fixed (rigorous red-team pass found three real bugs)
+
+1. **Race condition in `/api/clusters?mode=tree_edit&threshold=N`.** The dashboard handler mutated `cluster._tree_edit_threshold_override` (a module-level global) before each call and reset it in `finally`. Two concurrent FastAPI requests could race: A's threshold leaks into B's response, B's finally then clobbers A's setting before A reads. Fix routes `threshold` through `list_clusters(..., threshold=N)` directly; the global remains for non-API callers (notebooks/scripts) but the request path no longer touches shared state.
+
+2. **Code injection in `clustertrace repro --mode negative`.** The generated pytest source inlined the DB-stored `error_type` raw into `pytest.raises({err_name})` and the docstring header. An attacker who could write to the trace DB — directly, via the new `/v1/traces` OTLP endpoint, or via a malformed importer — could land arbitrary Python in the generated file, which executes when the user runs the generated test. Fix validates `error_type` against `^[A-Za-z_][A-Za-z_0-9]*(\.[A-Za-z_][A-Za-z_0-9]*)*$` (falls back to `Exception` on non-match) and replaces the docstring header with `#` comment lines so a smuggled `"""` cannot break out of the string literal. AST + tokenize-based regression test asserts the dangerous payload never lands in executable code.
+
+3. **Unbounded body on `POST /v1/traces`.** The OTLP/JSON endpoint called `request.json()` with no size cap. A multi-GB body OOMs the dashboard process (and the OTLP endpoint is the *one* surface explicitly designed to accept remote agent traffic, including from browsers via the new TS SDK). Fix reads the body in two phases: an upfront `Content-Length` check rejects oversize before buffering, and a post-read length check catches chunked clients that omitted/lied about the header. Both return HTTP 413. Cap defaults to 16 MiB; override via `CLUSTERTRACE_OTLP_MAX_BYTES`.
+
+Each has a regression test that fails on the unpatched code. 174/174 tests passing, ruff + pyright clean.
+
 ## [0.7.0] — 2026-05-21
 
 ### Added — Phase 2: competitor ingest

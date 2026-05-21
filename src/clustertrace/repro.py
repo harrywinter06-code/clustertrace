@@ -13,9 +13,25 @@ captured root input is `__truncated`, we emit a comment instead of code.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 
 from clustertrace import cluster, storage
+
+# A dotted Python identifier — e.g. "ValueError", "requests.HTTPError".
+# Anything else in error_type (operators, spaces, quotes, dots-at-edges) is
+# treated as untrusted data and substituted with "Exception" before being
+# inlined into generated test source. The DB column accepts arbitrary
+# strings (a malformed importer or a /v1/traces submission can set it), so
+# we cannot trust it.
+_SAFE_EXCEPTION_NAME = re.compile(r"^[A-Za-z_][A-Za-z_0-9]*(\.[A-Za-z_][A-Za-z_0-9]*)*$")
+
+
+def _safe_exception_name(name: str | None) -> str:
+    """Return `name` if it is a plain dotted identifier; else "Exception"."""
+    if name and _SAFE_EXCEPTION_NAME.match(name):
+        return name
+    return "Exception"
 
 
 class ReproError(Exception):
@@ -139,14 +155,32 @@ def generate_repro(trace_or_sig: str, entry: str, mode: str = "positive") -> str
     mod, fn = _validate_entry(entry)
     short = _short_hash(info.trace_id)
 
-    header = (
-        f'"""Auto-generated reproduction of trace {info.trace_id}.\n\n'
-        f'Originally produced by:\n'
-        f'  clustertrace repro {trace_or_sig} --entry {entry} --mode {mode}\n'
-        f'Original trace status: {info.status}'
-        + (f"\nOriginal error: {info.error_type}: {info.error_message}" if info.error_type else "")
-        + '\n"""\n'
-    )
+    # The header is written as `#` comments rather than a docstring so a
+    # newline + `"""` smuggled into an untrusted field (trace_id from an
+    # importer, error_message/error_type from a malicious /v1/traces
+    # submission, even the CLI argv) cannot break out of a string literal
+    # into executable code. Comment lines terminate at \n, which we strip
+    # explicitly below.
+    def _safe_comment(s: object) -> str:
+        # Replace newlines + carriage returns so the `# ` prefix actually
+        # comments every line. No further escaping needed — `#` to end of
+        # line is opaque to the Python parser.
+        return str(s).replace("\r", " ").replace("\n", " ")
+
+    header_lines = [
+        f"# Auto-generated reproduction of trace {_safe_comment(info.trace_id)}.",
+        "#",
+        "# Originally produced by:",
+        f"#   clustertrace repro {_safe_comment(trace_or_sig)} "
+        f"--entry {_safe_comment(entry)} --mode {_safe_comment(mode)}",
+        f"# Original trace status: {_safe_comment(info.status)}",
+    ]
+    if info.error_type:
+        header_lines.append(
+            f"# Original error: {_safe_comment(info.error_type)}: "
+            f"{_safe_comment(info.error_message)}"
+        )
+    header = "\n".join(header_lines) + "\n"
 
     if info.truncated:
         return (
@@ -191,9 +225,13 @@ def generate_repro(trace_or_sig: str, entry: str, mode: str = "positive") -> str
     ]
     if mode == "negative":
         # Negative reproduction — assert the same error type fires.
-        # Original error_type may be qualified (e.g. 'ValueError'). We catch
-        # by name string via pytest.raises with `match` on the recorded message.
-        err_name = info.error_type or "Exception"
+        # error_type is sanitized: DB-stored values can be arbitrary strings
+        # (a malformed importer or a /v1/traces submission could carry code
+        # like "Exception); os.system('...'); raise ValueError(("). We accept
+        # only plain dotted identifiers; anything else falls back to
+        # `Exception`. The user can edit the generated file by hand if they
+        # need a more specific catch.
+        err_name = _safe_exception_name(info.error_type)
         body_lines.append("    import pytest")
         body_lines.append(f"    with pytest.raises({err_name}):")
         body_lines.append(f"        {fn}(*args, **kwargs)")

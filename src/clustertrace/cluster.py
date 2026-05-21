@@ -150,13 +150,23 @@ class Cluster:
         return self.error_count / self.count if self.count else 0.0
 
 
-def list_clusters(limit: int = 50, offset: int = 0, mode: str = "ordered") -> list[Cluster]:
+def list_clusters(
+    limit: int = 50,
+    offset: int = 0,
+    mode: str = "ordered",
+    threshold: int | None = None,
+) -> list[Cluster]:
     """Return all distinct trace signatures with counts, sorted by frequency.
 
     mode='ordered' uses the stored signature column (cheap, indexed).
     mode='set' re-clusters on the fly from spans (Python-side, slower) so the
     user can compare ordered vs reorder-insensitive groupings without a
     second column.
+
+    `threshold` is honored only for mode='tree_edit'. Pass it directly to
+    avoid the module-level override — otherwise concurrent callers racing on
+    `_tree_edit_threshold_override` would see each other's values. The override
+    remains as a convenience for non-API callers (notebooks, scripts).
     """
     if mode == "ordered":
         with storage.connect() as conn:
@@ -195,8 +205,11 @@ def list_clusters(limit: int = 50, offset: int = 0, mode: str = "ordered") -> li
         return out
 
     if mode == "tree_edit":
+        # Explicit kwarg wins; otherwise fall back to the module-level override
+        # (None means "use the per-DB default").
+        effective = threshold if threshold is not None else _tree_edit_threshold_override
         return _list_clusters_tree_edit_mode(
-            limit=limit, offset=offset, threshold=_tree_edit_threshold_override
+            limit=limit, offset=offset, threshold=effective
         )
 
     # mode='set' — recompute on the fly

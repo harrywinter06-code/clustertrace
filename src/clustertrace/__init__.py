@@ -15,7 +15,7 @@ __all__ = [
     "wrap_openai",
     "get_db_path",
 ]
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 
 
 def flush() -> int:
