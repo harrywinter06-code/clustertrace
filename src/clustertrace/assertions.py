@@ -4,16 +4,16 @@ A rule is a JSON blob of the form `{"kind": <kind>, ...}`. Supported kinds:
 
   - `success_rate_above`:
       `{"kind": "success_rate_above", "threshold": 0.9, "over_last": 100, "unit": "traces"}`
-      Pass if (1 - error_rate) over the last N traces in the cluster ≥ threshold.
+      Pass if (1 - error_rate) over the last N traces in the cluster >= threshold.
       `unit` is `traces` (default) or `seconds`.
 
   - `avg_latency_below`:
       `{"kind": "avg_latency_below", "ms": 5000.0, "over_last": 100, "unit": "traces"}`
-      Pass if mean trace duration (ms) over the last N traces ≤ threshold.
+      Pass if mean trace duration (ms) over the last N traces <= threshold.
 
   - `avg_cost_below`:
       `{"kind": "avg_cost_below", "usd": 0.01, "over_last": 100, "unit": "traces"}`
-      Pass if mean cost_usd over the last N traces ≤ threshold. Skips traces
+      Pass if mean cost_usd over the last N traces <= threshold. Skips traces
       with no cost data rather than counting them as 0 — that would
       flatter clusters that never report cost.
 
@@ -229,7 +229,7 @@ def evaluate_assertion(assertion_id: int, sig_hash: str, rule: dict[str, Any]) -
             passed=passed,
             observed=round(rate, 4),
             reason=(
-                f"success rate {rate:.2%} {'≥' if passed else '<'} threshold {threshold:.2%} "
+                f"success rate {rate:.2%} {'>=' if passed else '<'} threshold {threshold:.2%} "
                 f"(over {n} traces)"
             ),
         )
@@ -259,7 +259,7 @@ def evaluate_assertion(assertion_id: int, sig_hash: str, rule: dict[str, Any]) -
             passed=passed,
             observed=round(avg, 2),
             reason=(
-                f"avg latency {avg:.1f}ms {'≤' if passed else '>'} threshold {threshold:.1f}ms "
+                f"avg latency {avg:.1f}ms {'<=' if passed else '>'} threshold {threshold:.1f}ms "
                 f"(over {len(durations_ms)} traces)"
             ),
         )
@@ -285,7 +285,7 @@ def evaluate_assertion(assertion_id: int, sig_hash: str, rule: dict[str, Any]) -
             passed=passed,
             observed=round(avg, 6),
             reason=(
-                f"avg cost ${avg:.6f} {'≤' if passed else '>'} threshold ${threshold:.6f} "
+                f"avg cost ${avg:.6f} {'<=' if passed else '>'} threshold ${threshold:.6f} "
                 f"(over {len(costs)} traces)"
             ),
         )
