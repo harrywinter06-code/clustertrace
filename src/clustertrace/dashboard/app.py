@@ -22,7 +22,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from clustertrace import cluster, storage
+from clustertrace import cluster, drift, maintenance, storage
 from clustertrace.otel import ClustertraceSpanExporter
 
 _HERE = Path(__file__).parent
@@ -84,17 +84,46 @@ async def clusters_page(request: Request):
     return _TEMPLATES.TemplateResponse(request, "clusters.html", {})
 
 
+@app.get("/drift", response_class=HTMLResponse)
+async def drift_page(request: Request):
+    return _TEMPLATES.TemplateResponse(request, "drift.html", {})
+
+
+@app.get("/api/cluster-drift")
+async def api_cluster_drift(window: str = "24h", compare: str = "24h"):
+    """Cluster failure-rate change between two adjacent time windows.
+
+    `window` is the current window (anchored at now), `compare` is the
+    immediately-preceding window of the same or different length. Accepts
+    `24h`, `7d`, `30d`, `60s`, etc. — same syntax as `clustertrace cleanup`.
+    """
+    try:
+        window_s = maintenance.parse_duration(window)
+        compare_s = maintenance.parse_duration(compare)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    try:
+        cluster.backfill_signatures()
+    except Exception:
+        pass
+    return drift.compute_drift(window_seconds=window_s, compare_seconds=compare_s)
+
+
 @app.get("/api/clusters")
 async def api_clusters(
     limit: int = 50,
     offset: int = 0,
     mode: str = "ordered",
     backfill: bool = True,
+    threshold: int | None = None,
 ):
     """List execution clusters.
 
     mode='ordered' (default) uses the stored signature (cheap, indexed).
     mode='set' recomputes on the fly so reorderings and retries collapse.
+    mode='tree_edit' groups traces by Wagner-Fischer edit distance — one
+        extra retry or reordering no longer splits a cluster. `threshold`
+        overrides the auto-computed value (max(2, 0.1 × median length)).
     """
     if backfill:
         try:
@@ -102,21 +131,27 @@ async def api_clusters(
         except Exception:
             pass
     out = []
-    if mode not in ("ordered", "set"):
+    if mode not in ("ordered", "set", "tree_edit"):
         mode = "ordered"
-    for cl in cluster.list_clusters(limit=limit, offset=offset, mode=mode):
-        out.append(
-            {
-                "signature": cl.signature,
-                "sig_hash": cl.sig_hash,
-                "count": cl.count,
-                "errors": cl.error_count,
-                "error_rate": cl.error_rate,
-                "avg_duration_ms": cl.avg_duration_ms,
-                "representative_trace_id": cl.representative_trace_id,
-                "pattern": [{"name": n, "status": s} for n, s in cl.pattern],
-            }
-        )
+    if mode == "tree_edit" and threshold is not None:
+        cluster.set_tree_edit_threshold(threshold)
+    try:
+        for cl in cluster.list_clusters(limit=limit, offset=offset, mode=mode):
+            out.append(
+                {
+                    "signature": cl.signature,
+                    "sig_hash": cl.sig_hash,
+                    "count": cl.count,
+                    "errors": cl.error_count,
+                    "error_rate": cl.error_rate,
+                    "avg_duration_ms": cl.avg_duration_ms,
+                    "representative_trace_id": cl.representative_trace_id,
+                    "pattern": [{"name": n, "status": s} for n, s in cl.pattern],
+                }
+            )
+    finally:
+        if mode == "tree_edit" and threshold is not None:
+            cluster.set_tree_edit_threshold(None)
     return {"clusters": out, "mode": mode, "limit": limit, "offset": offset}
 
 

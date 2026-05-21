@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Drift — clustertrace{% endblock %}
+{% block content %}
+<section>
+  <h1>Cluster drift</h1>
+  <p class="muted">Failure rates for each cluster, current window vs. the window immediately before. <b>What changed since your last deploy?</b></p>
+
+  <div class="filter-row" style="margin: 8px 0 16px;">
+    <label class="muted small">window:</label>
+    <select id="window-input" class="input">
+      <option value="24h">last 24h</option>
+      <option value="7d">last 7d</option>
+      <option value="30d">last 30d</option>
+    </select>
+    <label class="muted small">compare to:</label>
+    <select id="compare-input" class="input">
+      <option value="24h">prior 24h</option>
+      <option value="7d">prior 7d</option>
+      <option value="30d">prior 30d</option>
+    </select>
+    <span class="muted small">Clusters with fewer than 3 traces in the current window are excluded.</span>
+  </div>
+
+  <div class="cards" style="grid-template-columns: 1fr 1fr;">
+    <div class="card">
+      <h2>Current window</h2>
+      <div id="current-meta" class="muted">loading…</div>
+    </div>
+    <div class="card">
+      <h2>Compare window</h2>
+      <div id="compare-meta" class="muted">loading…</div>
+    </div>
+  </div>
+
+  <div class="row between" style="margin-top:24px;">
+    <h2 style="margin:0;">Drifts (largest |Δ| first)</h2>
+    <div class="muted small" id="drift-count"></div>
+  </div>
+  <div id="drift-list" class="muted">loading…</div>
+</section>
+
+<script>
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function pill(name, status) {
+  return `<span class="pill ${status}" title="${escapeHtml(name)} (${status})">${escapeHtml(name)}</span>`;
+}
+function fmtTime(ts) {
+  if (!ts) return '—';
+  return new Date(ts * 1000).toLocaleString();
+}
+
+async function loadDrift() {
+  const window_ = document.getElementById('window-input').value;
+  const compare = document.getElementById('compare-input').value;
+  const r = await fetch(`/api/cluster-drift?window=${window_}&compare=${compare}`).then(r => r.json());
+
+  document.getElementById('current-meta').innerHTML = `
+    <div><b>${r.current_window.trace_count}</b> traces</div>
+    <div class="muted small">${fmtTime(r.current_window.start)} → ${fmtTime(r.current_window.end)}</div>
+  `;
+  document.getElementById('compare-meta').innerHTML = `
+    <div><b>${r.compare_window.trace_count}</b> traces</div>
+    <div class="muted small">${fmtTime(r.compare_window.start)} → ${fmtTime(r.compare_window.end)}</div>
+  `;
+
+  const list = document.getElementById('drift-list');
+  document.getElementById('drift-count').textContent = `${r.drifts.length} clusters moved`;
+  if (!r.drifts.length) {
+    list.innerHTML = '<p class="muted">No drift detected. Either nothing changed or both windows are empty. Try widening the window or run <code>clustertrace demo</code>.</p>';
+    return;
+  }
+  list.innerHTML = r.drifts.map(d => {
+    const deltaPct = (d.delta * 100).toFixed(0);
+    const arrow = d.direction === 'regressed' ? '↑' : '↓';
+    const arrowClass = d.direction === 'regressed' ? 'high' : 'none';
+    const curPct = (d.current.rate * 100).toFixed(0);
+    const prevPct = (d.previous.rate * 100).toFixed(0);
+    return `
+      <div class="cluster-card ${arrowClass}">
+        <div class="cluster-meta">
+          <div class="cluster-counts">
+            <span class="cluster-err ${arrowClass}">${arrow} ${deltaPct > 0 ? '+' : ''}${deltaPct}pp</span>
+            <span class="muted small">now: ${d.current.errs}/${d.current.n} (${curPct}%)</span>
+            <span class="muted small">before: ${d.previous.errs}/${d.previous.n} (${prevPct}%)</span>
+            <span class="tag-chip">${escapeHtml(d.direction)}</span>
+          </div>
+        </div>
+        <div class="cluster-pattern">${d.pattern.map(p => pill(p.name, p.status)).join('<span class="arrow">›</span>')}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+document.getElementById('window-input').addEventListener('change', loadDrift);
+document.getElementById('compare-input').addEventListener('change', loadDrift);
+loadDrift();
+</script>
+{% endblock %}

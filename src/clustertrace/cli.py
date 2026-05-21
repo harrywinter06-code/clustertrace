@@ -156,13 +156,61 @@ def export_cmd(trace_id: str | None, all_: bool, limit: int | None) -> None:
         raise click.UsageError("provide a trace_id or --all")
 
 
-@main.command("import")
-def import_cmd() -> None:
-    """Import traces from JSON Lines on stdin. Existing IDs are skipped."""
-    from clustertrace import export as exp
+@main.command(
+    "import",
+    help=(
+        "Import traces from another tool's export.\n\n"
+        "Supported sources:\n"
+        "  native    — clustertrace JSONL (default; backward-compat)\n"
+        "  langfuse  — Langfuse JSON / JSONL export\n"
+        "  phoenix   — Arize Phoenix / OpenInference span export\n"
+        "  langsmith — LangSmith run export\n"
+        "  otel      — OTLP/JSON span data\n\n"
+        "Reads stdin unless --file is given. Existing trace IDs are skipped."
+    ),
+)
+@click.option(
+    "--from",
+    "source",
+    default="native",
+    show_default=True,
+    help="Source format. One of: native, langfuse, phoenix, langsmith, otel.",
+)
+@click.option(
+    "--file",
+    "file_path",
+    type=click.Path(exists=True, dir_okay=False, readable=True),
+    default=None,
+    help="Read from a file instead of stdin.",
+)
+def import_cmd(source: str, file_path: str | None) -> None:
+    """Import traces from a competitor tool or clustertrace's own JSONL."""
+    from clustertrace.importers import SOURCES, SUPPORTED
 
-    imported, skipped = exp.import_lines(sys.stdin)
-    click.echo(f"imported {imported}, skipped {skipped}")
+    if source == "native":
+        from clustertrace import export as exp
+
+        stream = open(file_path, encoding="utf-8") if file_path else sys.stdin
+        try:
+            imported, skipped = exp.import_lines(stream)
+        finally:
+            if file_path:
+                stream.close()
+        click.echo(f"imported {imported} traces, skipped {skipped} lines")
+        return
+
+    if source not in SOURCES:
+        click.echo(f"unknown source: {source}; supported: {SUPPORTED}", err=True)
+        sys.exit(2)
+
+    importer = SOURCES[source]
+    stream = open(file_path, encoding="utf-8") if file_path else sys.stdin
+    try:
+        imported, skipped = importer(stream)
+    finally:
+        if file_path:
+            stream.close()
+    click.echo(f"imported {imported} traces, skipped {skipped} lines")
 
 
 @main.command("replay")
@@ -178,6 +226,36 @@ def replay_cmd(trace_id: str, entry: str) -> None:
         click.echo(f"replayed -> new trace id: {new_id}")
     else:
         click.echo("replay completed but no new trace id was captured", err=True)
+
+
+@main.command("repro")
+@click.argument("sig_hash_or_trace_id")
+@click.option("--entry", required=True,
+              help="Entrypoint as 'module:function' (e.g. examples.agents:research_agent).")
+@click.option("--mode", type=click.Choice(["positive", "negative"]), default="positive",
+              show_default=True,
+              help="positive=assert no raise; negative=assert original error_type raises.")
+@click.option("--out", "-o", type=click.Path(), default=None,
+              help="Write to this file instead of stdout. "
+                   "Convention: tests/test_repro_<short_hash>.py.")
+def repro_cmd(sig_hash_or_trace_id: str, entry: str, mode: str, out: str | None) -> None:
+    """Generate a pytest reproduction from a captured trace.
+
+    Pass either a trace_id or a sig_hash (from /clusters). For a sig_hash the
+    most recent failing trace in that cluster is used as the seed.
+    """
+    from clustertrace import repro as _repro
+
+    try:
+        src = _repro.generate_repro(sig_hash_or_trace_id, entry, mode=mode)
+    except _repro.ReproError as e:
+        raise click.ClickException(str(e)) from e
+    if out:
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(src)
+        click.echo(f"wrote {out}", err=True)
+    else:
+        sys.stdout.write(src)
 
 
 @main.command()
