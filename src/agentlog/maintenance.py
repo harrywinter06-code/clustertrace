@@ -19,7 +19,7 @@ def parse_duration(s: str) -> int:
     """Parse '7d' / '24h' / '30m' / '60s' / '2w' into a seconds count."""
     m = _DURATION_RE.match(s.strip().lower())
     if not m:
-        raise ValueError(f"invalid duration {s!r} — expected '7d', '24h', '30m', '60s', '2w'")
+        raise ValueError(f"invalid duration {s!r} - expected '7d', '24h', '30m', '60s', '2w'")
     n = int(m.group(1))
     unit = m.group(2)
     return n * {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}[unit]

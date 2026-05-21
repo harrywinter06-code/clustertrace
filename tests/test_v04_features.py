@@ -305,3 +305,39 @@ def test_import_refuses_unknown_future_export_version(isolated_db):
     future = '{"_agentlog_header": true, "export_format_version": 9999}\n'
     with pytest.raises(ValueError, match="newer than this agentlog supports"):
         export.import_lines(io.StringIO(future))
+
+
+# --- Windows cp1252 encoding regression ---
+
+def test_cli_output_is_ascii_safe():
+    """All click.echo() strings in the CLI must be cp1252-safe.
+
+    Real-world bug: 'agentlog demo' previously printed '→' which crashed on a
+    fresh Windows install because the default Python stdout encoding is cp1252.
+    This caught it in the first-5-minutes UX test; the regression test stops it
+    coming back.
+    """
+    import pathlib
+
+    cli_text = (pathlib.Path(__file__).parent.parent / "src" / "agentlog" / "cli.py").read_text(encoding="utf-8")
+    import re
+
+    # Lines that produce user-facing output (click.echo / click.ClickException).
+    for line in cli_text.splitlines():
+        if "click.echo(" in line or "click.ClickException(" in line:
+            # Strip the wrapping click.echo(...) / click.ClickException(...) so
+            # we only check the string payload, not the function name.
+            try:
+                line.encode("cp1252")
+            except UnicodeEncodeError as e:
+                raise AssertionError(
+                    f"CLI output contains a character that crashes on Windows cp1252:\n  {line.strip()}\n  {e}"
+                ) from e
+    # Same check on the maintenance module's user-facing ValueError messages.
+    maint = (pathlib.Path(__file__).parent.parent / "src" / "agentlog" / "maintenance.py").read_text(encoding="utf-8")
+    for m in re.finditer(r'raise ValueError\(f?"([^"]+)"', maint):
+        msg = m.group(1)
+        try:
+            msg.encode("cp1252")
+        except UnicodeEncodeError as e:
+            raise AssertionError(f"maintenance.py raises a message with non-cp1252 chars: {msg!r} ({e})") from e

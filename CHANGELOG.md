@@ -2,6 +2,20 @@
 
 All notable changes to agentlog. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); semver applies.
 
+## [0.4.2] — 2026-05-20
+
+### Fixed
+- **Windows cp1252 crash on `agentlog demo`** — the CLI used Unicode arrows (`→`) and bullets (`·`) in its output, which crashed on a fresh Windows install where Python's stdout defaults to cp1252. Found in a first-5-minutes UX test. CLI output is now ASCII-only; regression test enforces this.
+
+### Added
+- **`publish.yml` workflow** — pushes a tag, builds the wheel + sdist, publishes to PyPI via OIDC trusted publisher (no API token stored). One-time setup at https://pypi.org/manage/account/publishing/ then `git push --tags` releases.
+- **`release.yml` workflow** — same trigger creates a GitHub Release with notes auto-extracted from the matching `CHANGELOG.md` section.
+- **`OUTREACH.md`** — researched, named-target list: 6 awesome-lists with categories, 9 AI infra bloggers/outlets with specific pitch angles, 9 Slack/Discord communities with channel names, named individuals worth engaging.
+- **README hero restructured** to match the patterns of higher-star competitors (Langfuse 27k, Phoenix 9.8k, Helicone 5.7k): centered banner image, tagline, badges row including PyPI; install command before features.
+
+### Improved
+- `LAUNCH.md` updated with researched data: 605-post Show HN survival study (1% survive 7 days on front page), 23,000-post timing analysis confirming weekday US morning slots, plus the contrarian Sunday-late-evening option. Specific times now grounded, not generic.
+
 ## [0.4.1] — 2026-05-20
 
 Launch-readiness release. Code is stable from 0.4.0; new content + integration examples.

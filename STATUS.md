@@ -13,6 +13,9 @@ Append-only log so progress is visible at a glance.
 - 2026-05-20 — tagged v0.3.0.
 - 2026-05-20 — v0.3.1: adoption blockers fixed. Bundled 60-trace demo dataset; `agentlog demo` command for zero-config trial; empty-state guidance on dashboard; GitHub Actions CI (3 OSes × 3 Python versions); CHANGELOG, SECURITY, issue/PR templates; py.typed marker; README rewrite with badges, ASCII cluster viz, comparison table to Langfuse/Phoenix/LangSmith, FAQ. Tagged v0.3.1.
 - 2026-05-20 — v0.4: every weakness from the critical analysis fixed. Connection pool (200 traces 55s→9s, 6× faster). Auto-cost on finalize. Reorder-insensitive `mode='set'` clustering + dashboard toggle. `@trace(sample, skip)` + `AGENTLOG_SAMPLE_RATE`. `agentlog.flush()` + atexit cleanup. `agentlog cleanup` and `agentlog vacuum` CLIs. Per-tag failure-prefix mining. Streaming-aware attrs. Versioned JSONL exports. Clusters pagination. 94 tests passing, 88% coverage, pyright clean, ruff clean. Tagged v0.4.0.
+- 2026-05-20 — v0.4.1: launch infrastructure. LangChain + LlamaIndex examples, benchmark suite (35µs Python overhead per @trace, 5ms SQLite write on Linux / ~30ms on Windows NTFS), docs/hero.svg embedded in README, LAUNCH.md with Show HN draft, 4 pinned good-first-issues for contribution opportunities. Tagged v0.4.1.
+- 2026-05-20 — v0.4.2: launch-readiness — PyPI OIDC trusted-publisher workflow (publish.yml) and GitHub Release auto-creation (release.yml) so `git push --tags` does everything. README hero restructured to match high-star OSS patterns (Langfuse/Phoenix/Helicone). OUTREACH.md with researched, named targets. First-5-min UX test caught a real Windows cp1252 crash on `agentlog demo` — fixed + regression test (cli output is cp1252-safe). 95 tests passing. Tagged v0.4.2.
+
 
 
 

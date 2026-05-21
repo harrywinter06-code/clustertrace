@@ -1,0 +1,55 @@
+name: github release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write  # required to create releases
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need the full history for prev-tag lookup
+
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          # Pull the section between "## [<version>]" and the next "## [" header.
+          NOTES=$(awk -v ver="$VERSION" '
+            /^## \[/ {
+              if (in_section) exit
+              if ($0 ~ "## \\["ver"\\]") { in_section=1; next }
+            }
+            in_section { print }
+          ' CHANGELOG.md)
+          if [ -z "$NOTES" ]; then
+            echo "no CHANGELOG section found for $VERSION; falling back to tag message"
+            NOTES=$(git tag -l --format="%(contents)" "$TAG")
+          fi
+          {
+            echo "notes<<EOF"
+            echo "$NOTES"
+            echo ""
+            echo "---"
+            echo ""
+            echo "Install: \`pip install agentlog==$VERSION\`"
+            echo "Try: \`agentlog demo\`"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: ${{ steps.notes.outputs.notes }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}

@@ -22,7 +22,7 @@ def dashboard(host: str, port: int, reload: bool) -> None:
     """Launch the local dashboard on http://127.0.0.1:7777 (default)."""
     import uvicorn
 
-    click.echo(f"agentlog dashboard → http://{host}:{port}")
+    click.echo(f"agentlog dashboard -> http://{host}:{port}")
     click.echo(f"reading traces from: {storage.get_db_path()}")
     uvicorn.run(
         "agentlog.dashboard.app:app",
@@ -77,8 +77,8 @@ def demo(port: int, no_browser: bool) -> None:
         pass
 
     url = f"http://127.0.0.1:{port}"
-    click.echo(f"agentlog demo → {url}")
-    click.echo("→ start with /clusters to see the failure-pattern view")
+    click.echo(f"agentlog demo -> {url}")
+    click.echo("-> start with /clusters to see the failure-pattern view")
 
     if not no_browser:
         def _open():
@@ -109,7 +109,7 @@ def backfill_cost() -> None:
     from agentlog import cost
 
     n, total = cost.backfill()
-    click.echo(f"priced {n} spans · total ${total:.4f}")
+    click.echo(f"priced {n} spans, total ${total:.4f}")
 
 
 @main.command("backfill-signatures")
@@ -175,7 +175,7 @@ def replay_cmd(trace_id: str, entry: str) -> None:
 
     new_id = rp.replay(trace_id, entry)
     if new_id:
-        click.echo(f"replayed → new trace id: {new_id}")
+        click.echo(f"replayed -> new trace id: {new_id}")
     else:
         click.echo("replay completed but no new trace id was captured", err=True)
 
@@ -209,7 +209,7 @@ def vacuum(older_than: str, dry_run: bool) -> None:
         click.echo(f"would delete {n} trace(s)")
     else:
         mb = freed / (1024 * 1024)
-        click.echo(f"deleted {n} trace(s) · reclaimed {mb:.2f} MB")
+        click.echo(f"deleted {n} trace(s), reclaimed {mb:.2f} MB")
 
 
 @main.command("stats")

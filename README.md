@@ -1,27 +1,32 @@
-# agentlog
-
-[![tests](https://github.com/harrywinter06/agentlog/actions/workflows/test.yml/badge.svg)](https://github.com/harrywinter06/agentlog/actions/workflows/test.yml)
-[![python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-
-**Local-first LLM agent observability that tells you *which clusters* of traces are failing — not which individual ones.** Drop in a decorator or your existing OpenTelemetry setup, get traces grouped by execution pattern, cost per call, full-text search, and replay of failing runs.
+<div align="center">
 
 ![agentlog clusters page](docs/hero.svg)
 
-**Two clusters explain 87% of all failures.** That's the kind of diagnosis the clusters page hands you in one screen instead of 47 stack traces.
+# agentlog
+
+**Local-first LLM agent observability that tells you *which clusters* of traces are failing — not which individual ones.**
+
+[![tests](https://github.com/harrywinter06/agentlog/actions/workflows/test.yml/badge.svg)](https://github.com/harrywinter06/agentlog/actions/workflows/test.yml)
+[![pypi](https://img.shields.io/pypi/v/agentlog.svg)](https://pypi.org/project/agentlog/)
+[![python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+</div>
+
+Drop in a decorator, an SDK wrapper, or your existing OpenTelemetry setup. Get traces grouped by execution pattern, cost per call, full-text search, and replay of failing runs — all running off a single SQLite file on your laptop.
+
+**Two clusters explain 87% of all failures** in the bundled demo. That's the kind of diagnosis the clusters page hands you in one screen instead of 47 stack traces.
 
 ---
 
 ## 30-second trial — no API key needed
 
 ```bash
-pip install "agentlog @ git+https://github.com/harrywinter06/agentlog"
+pip install agentlog
 agentlog demo
 ```
 
-`agentlog demo` imports 60 pre-recorded traces of three agents (research, RAG, tool-use), launches the dashboard, and opens your browser. You can poke at the clusters page, run a search, see real cost data — without any API spend.
-
-*(Once on PyPI: `pip install agentlog` and you're done.)*
+60 pre-recorded traces of three agents (research, RAG, tool-use), dashboard auto-launches, no API spend. *Pre-PyPI:* `pip install "agentlog @ git+https://github.com/harrywinter06/agentlog"`.
 
 ---
 

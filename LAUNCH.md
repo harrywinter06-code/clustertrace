@@ -10,22 +10,28 @@ Internal doc — strategy + copy-paste-ready drafts for the agentlog v0.4 launch
 4. **Pinned good-first-issues** on the repo so the engagement that lands converts into contributors.
 5. **One comparison post** ("Langfuse vs agentlog") written by someone other than you, within month 1. Reach out beforehand; offer a 30-min walkthrough.
 
-## Sequence
+## Sequence (researched, not conventional wisdom)
+
+**Timing data:** The most reliable analyses (Pinboard 2018, Syften 2024, ASOF Show HN study 2026 of 605 posts) converge on weekday US mornings — 8:30–10:00 ET on Tue/Wed/Thu — for the highest *odds* of front page. But a 2026 contrarian analysis of 23,000 posts found that **Sunday midnight–1am Pacific** also works because competition drops; the trade-off is engagement is shallower. Only 1% of Show HN posts survive 7 days on the front page (ASOF, n=605). Title clarity and OP's first comment within 5 minutes matter more than timing.
+
+**Choice:** Tuesday 8:30am ET. Backup if Tue gets buried: re-think the title and try Wed 9:00 ET. Don't re-post the same URL — re-posting is detected and silently flagged.
 
 | When | Action |
 |---|---|
-| T-3 days | Publish to PyPI. Tag GitHub release v0.4.0 with notes. |
-| T-2 days | Set repo topics: `llm`, `observability`, `tracing`, `opentelemetry`, `agents`, `langchain`, `anthropic`, `openai`, `debugging`. Add a custom social preview image (Settings → Social preview). |
-| T-1 day | Soft-share with 5 people who'd give honest feedback. Fix anything obvious. Pre-write replies to the 3 most likely HN comments (see below). |
-| T-0 8am ET | Post **Show HN** (see draft below). Drop first comment with motivation + honest scope. |
-| T-0 8:30am ET | Post Twitter/X thread. Tag @anthropicai, @LangChainAI, @LlamaIndex. |
-| T-0 9am ET | Submit to lobste.rs (`programming` + `python`). |
-| T-0 throughout day | Reply to every HN comment within 30 minutes. Be technically specific. |
-| T-0 evening | Cross-post to `r/Python` and AI Eng Slack channels (selective; not spammy). |
-| T+1 day | Post the **benchmark numbers** in a follow-up comment if HN momentum is still going. |
-| T+1 week | Write the **clustering algorithm blog post** (see "Content angles" below). |
-| T+2 weeks | Submit PRs to `awesome-llm`, `awesome-ai-agents`. |
-| T+3–4 weeks | Reach out to AI infra newsletters / bloggers offering a comparison. |
+| **T-3 days** | Publish to PyPI via the `publish.yml` GitHub Actions workflow (already in repo; just push the tag). Verify `pip install agentlog` works from a clean venv. |
+| **T-2 days** | Set repo topics: `llm`, `observability`, `tracing`, `opentelemetry`, `agents`, `langchain`, `llamaindex`, `anthropic`, `openai`, `debugging`, `python`. Add a custom social preview image (Settings → Social preview; 1280×640 PNG). Set repo description: *"Local-first LLM agent tracer with structural failure clustering."* |
+| **T-1 day** | Soft-share with 5 people who'd give honest feedback. Fix anything obvious. Pre-write replies to the predictable comments (see below). |
+| **T-0 8:25am ET (Tue)** | Verify pip install + agentlog demo works on a fresh OS install (cloud VM is fine). |
+| **T-0 8:30am ET** | Post **Show HN** (draft below). Drop first comment (in *the* HN thread, replying to your own submission as OP) with motivation + honest scope within 90 seconds of submission. The first OP comment is the strongest single signal HN's ranking uses. |
+| **T-0 9:00am ET** | If thread has ≥3 comments + ≥5 upvotes by now → post Twitter/X thread. If not, wait 30 minutes — Twitter promotion of a dead HN thread looks worse. |
+| **T-0 9:30am ET** | Submit to lobste.rs (`programming` + `python` tags). Lobste.rs audience is more code-review-y; expect deeper questions. |
+| **T-0 throughout day** | Reply to every HN comment within 15 minutes. Be technically specific. Don't argue — restate the trade-off and link to ARCHITECTURE.md. |
+| **T-0 evening** | Cross-post to LangChain Discord `#show-and-tell` (only if T-0 went OK). Skip Reddit on day 0; reddit's HN-aware crowd will notice the coordinated push. |
+| **T+1 day** | If HN is still on top-50: post the benchmark numbers in a follow-up comment. If buried: write up "what I learned from launching to 30 stars" — that post sometimes recovers traction. |
+| **T+3 days** | dev.to long-form: "Why I built a tracer that clusters traces instead of listing them." Link from a fresh HN comment if the thread is still alive. |
+| **T+1 week** | r/Python Saturday showcase thread. r/LocalLLaMA self-promo thread. |
+| **T+2 weeks** | PRs into 2 awesome-lists (see OUTREACH.md for specific repos). |
+| **T+3–4 weeks** | Pitch one comparison post to Latitude or Confident AI (see OUTREACH.md). |
 
 ## Show HN — draft
 
