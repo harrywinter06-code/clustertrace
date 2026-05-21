@@ -35,9 +35,13 @@ def _record_messages_span(model: str, messages: Any, kwargs: dict[str, Any]) -> 
         kind="llm_call",
         started_at=now,
         input_data={"messages": messages, "model": model, "kwargs": _redact_kwargs(kwargs)},
-        attrs={"model": model, "provider": "anthropic"},
+        attrs={"model": model, "provider": "anthropic", "streaming": _streaming(kwargs)},
     )
     return span_id, trace_id, now, is_root, trace_tok  # type: ignore[return-value]
+
+
+def _streaming(kwargs: dict[str, Any]) -> bool:
+    return bool(kwargs.get("stream"))
 
 
 def _redact_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -92,18 +96,28 @@ def _extract_response_summary(resp: Any) -> dict[str, Any]:
     return summary
 
 
-def _finish(span_id: str, trace_id: str, is_root: bool, trace_tok, resp: Any | None, exc: BaseException | None) -> None:
+def _finish(
+    span_id: str,
+    trace_id: str,
+    is_root: bool,
+    trace_tok,
+    resp: Any | None,
+    exc: BaseException | None,
+    streaming: bool = False,
+) -> None:
     if exc is not None:
         error_type = type(exc).__name__
         error_message = str(exc)[:1000]
+        # Preserve the streaming flag on the failure case too
+        err_attrs = {"streaming": streaming} if streaming else None
         storage.finish_span(
-            span_id, time.time(), "error", error_type=error_type, error_message=error_message
+            span_id, time.time(), "error", error_type=error_type, error_message=error_message, attrs=err_attrs
         )
         if is_root:
             storage.finish_trace(trace_id, time.time(), "error", error_type=error_type, error_message=error_message)
     else:
         summary = _extract_response_summary(resp)
-        attrs = None
+        attrs: dict[str, Any] | None = None
         usage = summary.get("usage")
         if isinstance(usage, dict):
             attrs = {
@@ -111,7 +125,10 @@ def _finish(span_id: str, trace_id: str, is_root: bool, trace_tok, resp: Any | N
                 "output_tokens": usage.get("output_tokens"),
                 "model": summary.get("model"),
                 "stop_reason": summary.get("stop_reason"),
+                "streaming": streaming,
             }
+        elif streaming:
+            attrs = {"streaming": True}
         storage.finish_span(span_id, time.time(), "ok", output_data=summary, attrs=attrs)
         if is_root:
             storage.finish_trace(trace_id, time.time(), "ok")
@@ -130,9 +147,9 @@ class _WrappedMessages:
         try:
             resp = self._inner.create(*args, **kwargs)
         except BaseException as exc:
-            _finish(span_id, trace_id, is_root, trace_tok, None, exc)
+            _finish(span_id, trace_id, is_root, trace_tok, None, exc, streaming=_streaming(kwargs))
             raise
-        _finish(span_id, trace_id, is_root, trace_tok, resp, None)
+        _finish(span_id, trace_id, is_root, trace_tok, resp, None, streaming=_streaming(kwargs))
         return resp
 
     def __getattr__(self, item: str) -> Any:
@@ -150,9 +167,9 @@ class _WrappedAsyncMessages:
         try:
             resp = await self._inner.create(*args, **kwargs)
         except BaseException as exc:
-            _finish(span_id, trace_id, is_root, trace_tok, None, exc)
+            _finish(span_id, trace_id, is_root, trace_tok, None, exc, streaming=_streaming(kwargs))
             raise
-        _finish(span_id, trace_id, is_root, trace_tok, resp, None)
+        _finish(span_id, trace_id, is_root, trace_tok, resp, None, streaming=_streaming(kwargs))
         return resp
 
     def __getattr__(self, item: str) -> Any:

@@ -180,6 +180,38 @@ def replay_cmd(trace_id: str, entry: str) -> None:
         click.echo("replay completed but no new trace id was captured", err=True)
 
 
+@main.command()
+@click.option("--stale-after", default="5m", show_default=True,
+              help="How long a 'running' trace must sit before being flipped to 'incomplete'.")
+def cleanup(stale_after: str) -> None:
+    """Finalize orphan traces left in 'running' state (after a crash, kill, etc.)."""
+    from agentlog import maintenance
+
+    secs = maintenance.parse_duration(stale_after)
+    n = maintenance.cleanup_orphans(stale_after_seconds=secs)
+    click.echo(f"cleaned up {n} orphan trace(s)")
+
+
+@main.command()
+@click.option("--older-than", default="30d", show_default=True,
+              help="Delete traces older than this (e.g. 7d, 24h, 30m).")
+@click.option("--dry-run", is_flag=True, help="Report what would be deleted; make no changes.")
+def vacuum(older_than: str, dry_run: bool) -> None:
+    """Delete old traces and reclaim disk space.
+
+    The DB grows until you vacuum. ON DELETE CASCADE handles spans, tags, metrics.
+    """
+    from agentlog import maintenance
+
+    secs = maintenance.parse_duration(older_than)
+    n, freed = maintenance.vacuum(older_than_seconds=secs, dry_run=dry_run)
+    if dry_run:
+        click.echo(f"would delete {n} trace(s)")
+    else:
+        mb = freed / (1024 * 1024)
+        click.echo(f"deleted {n} trace(s) · reclaimed {mb:.2f} MB")
+
+
 @main.command("stats")
 def stats() -> None:
     """Print a one-screen summary of the DB."""

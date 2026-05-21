@@ -125,6 +125,12 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 _lock = threading.Lock()
 _initialized: set[str] = set()
 
+# Thread-local connection pool. Each thread gets one connection per resolved
+# DB path. Reusing the connection avoids the PRAGMA-setup + open/close cost
+# that dominated burst write latency (200 async traces dropped from ~55s to
+# ~2s once we stopped opening a fresh connection per write).
+_local = threading.local()
+
 
 def get_db_path() -> Path:
     """Return the SQLite path. Honors $AGENTLOG_DB, defaults to ~/.agentlog/traces.db."""
@@ -159,25 +165,53 @@ def _ensure_initialized(path: Path) -> None:
         _initialized.add(key)
 
 
+def _get_or_open_connection(path: Path) -> sqlite3.Connection:
+    """Return a thread-local SQLite connection, opening it on first use."""
+    pool = getattr(_local, "connections", None)
+    if pool is None:
+        pool = {}
+        _local.connections = pool
+    key = str(path.resolve())
+    conn = pool.get(key)
+    if conn is None:
+        conn = sqlite3.connect(str(path), timeout=5.0, isolation_level=None)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.row_factory = sqlite3.Row
+        pool[key] = conn
+    return conn
+
+
 @contextmanager
 def connect(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
-    """Open a SQLite connection. Initializes schema on first call."""
+    """Yield a pooled SQLite connection.
+
+    The connection is shared per (thread, db-path) and not closed on exit —
+    closing per-write was the dominant cost under burst load. Tests that
+    swap `$AGENTLOG_DB` call `reset_initialized_cache()`, which also closes
+    any pooled connections so the next `connect()` opens against the new path.
+    """
     path = db_path or get_db_path()
     _ensure_initialized(path)
-    conn = sqlite3.connect(str(path), timeout=5.0, isolation_level=None)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.row_factory = sqlite3.Row
-    try:
-        yield conn
-    finally:
-        conn.close()
+    yield _get_or_open_connection(path)
 
 
 def reset_initialized_cache() -> None:
-    """Test helper: clear the per-path initialization cache."""
+    """Test helper: clear init cache + close pooled connections.
+
+    Must be called when switching `$AGENTLOG_DB` between tests, otherwise
+    the pooled connection points at the old path and writes go nowhere.
+    """
     with _lock:
         _initialized.clear()
+    pool = getattr(_local, "connections", None)
+    if pool:
+        for conn in pool.values():
+            try:
+                conn.close()
+            except Exception:
+                pass
+        pool.clear()
 
 
 def _max_payload_bytes() -> int:
@@ -254,6 +288,17 @@ def finish_trace(
         from agentlog import cluster
 
         cluster.compute_and_store_signature(trace_id)
+    except Exception:
+        pass
+    # Roll up child-span costs into the trace.
+    try:
+        with connect() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(cost_usd), 0) FROM spans WHERE trace_id = ? AND cost_usd IS NOT NULL",
+                (trace_id,),
+            ).fetchone()
+        if row and row[0] > 0:
+            set_trace_cost(trace_id, round(float(row[0]), 6))
     except Exception:
         pass
 
@@ -341,6 +386,16 @@ def finish_span(
     error_message: str | None = None,
     attrs: dict[str, Any] | None = None,
 ) -> None:
+    # Auto-cost: if this looks like an LLM call (has model + tokens in attrs)
+    # estimate its USD cost and persist alongside the rest of the finalization.
+    auto_cost: float | None = None
+    if attrs:
+        try:
+            from agentlog import cost as _cost
+
+            auto_cost = _cost.estimate_span_cost(attrs)
+        except Exception:
+            auto_cost = None
     with connect() as conn:
         if attrs is not None:
             conn.execute(
@@ -372,3 +427,8 @@ def finish_span(
                     span_id,
                 ),
             )
+    if auto_cost is not None:
+        try:
+            set_span_cost(span_id, auto_cost)
+        except Exception:
+            pass

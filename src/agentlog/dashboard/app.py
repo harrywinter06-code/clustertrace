@@ -82,14 +82,26 @@ async def clusters_page(request: Request):
 
 
 @app.get("/api/clusters")
-async def api_clusters(limit: int = 50, backfill: bool = True):
+async def api_clusters(
+    limit: int = 50,
+    offset: int = 0,
+    mode: str = "ordered",
+    backfill: bool = True,
+):
+    """List execution clusters.
+
+    mode='ordered' (default) uses the stored signature (cheap, indexed).
+    mode='set' recomputes on the fly so reorderings and retries collapse.
+    """
     if backfill:
         try:
             cluster.backfill_signatures()
         except Exception:
             pass
     out = []
-    for cl in cluster.list_clusters(limit=limit):
+    if mode not in ("ordered", "set"):
+        mode = "ordered"
+    for cl in cluster.list_clusters(limit=limit, offset=offset, mode=mode):
         out.append(
             {
                 "signature": cl.signature,
@@ -102,16 +114,16 @@ async def api_clusters(limit: int = 50, backfill: bool = True):
                 "pattern": [{"name": n, "status": s} for n, s in cl.pattern],
             }
         )
-    return {"clusters": out}
+    return {"clusters": out, "mode": mode, "limit": limit, "offset": offset}
 
 
 @app.get("/api/failure-summary")
-async def api_failure_summary():
+async def api_failure_summary(group_by_tag: str = "agent"):
     try:
         cluster.backfill_signatures()
     except Exception:
         pass
-    return cluster.failure_summary()
+    return cluster.failure_summary(group_by_tag=group_by_tag or None)
 
 
 @app.get("/api/tags")

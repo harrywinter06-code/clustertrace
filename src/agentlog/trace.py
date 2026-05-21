@@ -78,22 +78,53 @@ def trace(
     *,
     name: str | None = None,
     tags: dict[str, Any] | None = None,
+    sample: float | None = None,
+    skip: bool = False,
 ) -> Any:
     """Capture inputs, outputs, exceptions, and duration of a function.
 
-    Use as @trace, @trace(name="..."), or @trace(tags={"agent": "researcher"}).
-    Works for sync and async. Tags attach only to the root trace; nested calls
-    inside a running trace ignore them (use `agentlog.tag()` for that).
+    Use as @trace, @trace(name="..."), @trace(tags={"agent": "researcher"}),
+    @trace(sample=0.1), or @trace(skip=True).
+
+    sample : float in (0, 1] — log this fraction of calls. Useful in
+        production where you only need representative samples. Set via
+        $AGENTLOG_SAMPLE_RATE for a global default. Nested traces inside
+        a sampled call are always recorded.
+    skip : bool — return the original function unwrapped. Use to disable
+        tracing on a hot loop without removing the decorator.
     """
+    import os
+    import random as _random
 
     def decorator(fn: F) -> F:
+        if skip:
+            return fn
+
         span_name = name or fn.__qualname__
         is_coro = inspect.iscoroutinefunction(fn)
+        effective_sample = sample
+        if effective_sample is None:
+            env = os.environ.get("AGENTLOG_SAMPLE_RATE")
+            if env:
+                try:
+                    effective_sample = float(env)
+                except ValueError:
+                    effective_sample = None
+
+        def _should_record() -> bool:
+            # Always record inside an active trace, even when sampling.
+            if effective_sample is None or effective_sample >= 1.0:
+                return True
+            if _current_trace_id.get() is not None:
+                return True
+            return _random.random() < effective_sample
 
         if is_coro:
 
             @functools.wraps(fn)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+                if not _should_record():
+                    return await fn(*args, **kwargs)
                 async with _async_call_span(fn, span_name, args, kwargs, tags) as set_result:
                     result = await fn(*args, **kwargs)
                     set_result(result)
@@ -103,6 +134,8 @@ def trace(
 
         @functools.wraps(fn)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+            if not _should_record():
+                return fn(*args, **kwargs)
             with _sync_call_span(fn, span_name, args, kwargs, tags) as set_result:
                 result = fn(*args, **kwargs)
                 set_result(result)

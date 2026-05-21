@@ -34,7 +34,7 @@ def _record_completion_span(model: str, messages: Any, kwargs: dict[str, Any]) -
         kind="llm_call",
         started_at=now,
         input_data={"messages": messages, "model": model, "kwargs": _redact_kwargs(kwargs)},
-        attrs={"model": model, "provider": "openai"},
+        attrs={"model": model, "provider": "openai", "streaming": bool(kwargs.get("stream"))},
     )
     return span_id, trace_id, is_root, trace_tok  # type: ignore[return-value]
 

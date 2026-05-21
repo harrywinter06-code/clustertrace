@@ -3,7 +3,16 @@
 {% block content %}
 <section>
   <h1>Execution clusters</h1>
-  <p class="muted">Traces grouped by structural signature (sequence of span names + statuses, consecutive duplicates collapsed). Each row is a distinct way your agent runs.</p>
+  <p class="muted">Traces grouped by structural signature. Each row is a distinct way your agent runs.</p>
+
+  <div class="filter-row" style="margin: 8px 0 16px;">
+    <label class="muted small">mode:</label>
+    <select id="mode-input" class="input">
+      <option value="ordered">ordered (sequence + RLE)</option>
+      <option value="set">set (reorder-insensitive)</option>
+    </select>
+    <span class="muted small" id="mode-hint">Set mode collapses reorderings and retries — useful when ordered produces too many clusters.</span>
+  </div>
 
   <div class="cards" style="grid-template-columns: 2fr 1fr;">
     <div class="card" id="summary-card">
@@ -18,12 +27,19 @@
 
   <div class="card" style="margin-top: 16px;">
     <h2>Common failure prefix</h2>
-    <p class="muted small">The longest prefix of (span name, status) shared by every failed trace — often the actual root cause path.</p>
+    <p class="muted small">Longest path-prefix shared by every failed trace. When failures come from different agents, the global prefix is empty — check the per-agent breakdown below.</p>
     <div id="prefix" class="prefix-row">—</div>
+    <div id="prefix-by-tag" style="margin-top:10px;"></div>
   </div>
 
-  <h2 style="margin-top:24px;">Clusters by frequency</h2>
+  <div class="row between" style="margin-top:24px;">
+    <h2 style="margin:0;">Clusters by frequency</h2>
+    <div class="muted small" id="pagination-status"></div>
+  </div>
   <div id="clusters-list" class="muted">loading…</div>
+  <div class="row" style="margin-top:14px; justify-content:center;">
+    <button id="load-more" class="btn" style="display:none;">Load 30 more</button>
+  </div>
 </section>
 
 <script>
@@ -33,49 +49,74 @@ function escapeHtml(s) {
 function pill(name, status) {
   return `<span class="pill ${status}" title="${escapeHtml(name)} (${status})">${escapeHtml(name)}</span>`;
 }
-async function load() {
-  const [clRes, summRes] = await Promise.all([
-    fetch('/api/clusters?limit=80').then(r => r.json()),
-    fetch('/api/failure-summary').then(r => r.json()),
-  ]);
+let PAGE_SIZE = 30;
+let loaded = [];
+let summaryCache = null;
 
-  // summary
-  const s = summRes;
-  const overallPct = (s.overall_failure_rate * 100).toFixed(1);
+async function loadSummary() {
+  const r = await fetch('/api/failure-summary').then(r => r.json());
+  summaryCache = r;
+  const overallPct = (r.overall_failure_rate * 100).toFixed(1);
   document.getElementById('summary').innerHTML = `
-    <div><b>${s.traces_total}</b> traces · <b>${s.traces_failed}</b> failed (<b>${overallPct}%</b>)</div>
-    <div class="muted small">${s.n_clusters} distinct execution patterns</div>
+    <div><b>${r.traces_total}</b> traces · <b>${r.traces_failed}</b> failed (<b>${overallPct}%</b>)</div>
+    <div class="muted small">${r.n_clusters} distinct execution patterns</div>
   `;
-
-  // top failing nodes
-  if (!s.top_failing_nodes.length) {
+  if (!r.top_failing_nodes.length) {
     document.getElementById('failing-nodes').innerHTML = '<span class="muted">No failures yet.</span>';
   } else {
-    document.getElementById('failing-nodes').innerHTML = s.top_failing_nodes.map(n => `
+    document.getElementById('failing-nodes').innerHTML = r.top_failing_nodes.map(n => `
       <div class="node-row">
         <span class="pill ${n.status}" style="margin-right:6px;">${escapeHtml(n.name)}</span>
         <span class="muted">×${n.count}</span>
       </div>
     `).join('');
   }
-
-  // common failure prefix
-  const prefix = s.common_failure_prefix;
   const prefEl = document.getElementById('prefix');
-  if (!prefix.length) {
-    prefEl.innerHTML = '<span class="muted">No common failure prefix (either no failures, or failures take different paths).</span>';
+  if (!r.common_failure_prefix.length) {
+    prefEl.innerHTML = '<span class="muted">No common prefix across all failures.</span>';
   } else {
-    prefEl.innerHTML = prefix.map(p => pill(p.name, p.status)).join(' <span class="muted">→</span> ');
+    prefEl.innerHTML = r.common_failure_prefix.map(p => pill(p.name, p.status)).join(' <span class="muted">→</span> ');
   }
+  // per-tag prefixes
+  const tagEl = document.getElementById('prefix-by-tag');
+  const tagPrefixes = r.prefixes_by_tag || {};
+  if (Object.keys(tagPrefixes).length) {
+    tagEl.innerHTML = `<div class="muted small" style="margin-top:8px;">Per <code>${escapeHtml(r.group_by_tag)}</code>:</div>` +
+      Object.entries(tagPrefixes).map(([v, prefix]) => `
+        <div style="margin-top:6px;">
+          <span class="tag-chip">${escapeHtml(r.group_by_tag)}=${escapeHtml(v)}</span>
+          ${prefix.map(p => pill(p.name, p.status)).join(' <span class="muted">→</span> ')}
+        </div>
+      `).join('');
+  } else {
+    tagEl.innerHTML = '';
+  }
+}
 
-  // cluster list
-  const cl = clRes.clusters;
-  if (!cl.length) {
-    document.getElementById('clusters-list').innerHTML = '<p class="muted">No clusters yet. Run a few traces.</p>';
+async function loadClusters(reset = true) {
+  const mode = document.getElementById('mode-input').value;
+  const offset = reset ? 0 : loaded.length;
+  const r = await fetch(`/api/clusters?limit=${PAGE_SIZE}&offset=${offset}&mode=${mode}`).then(r => r.json());
+  if (reset) {
+    loaded = r.clusters;
+  } else {
+    loaded = loaded.concat(r.clusters);
+  }
+  renderClusters();
+  // toggle load-more
+  document.getElementById('load-more').style.display = r.clusters.length === PAGE_SIZE ? '' : 'none';
+  document.getElementById('pagination-status').textContent =
+    `showing ${loaded.length} of ${summaryCache ? summaryCache.n_clusters : '?'} clusters · mode=${mode}`;
+}
+
+function renderClusters() {
+  const el = document.getElementById('clusters-list');
+  if (!loaded.length) {
+    el.innerHTML = '<p class="muted">No clusters yet. Run <code>agentlog demo</code> or instrument your code.</p>';
     return;
   }
-  const maxCount = Math.max(...cl.map(c => c.count));
-  document.getElementById('clusters-list').innerHTML = cl.map(c => {
+  const maxCount = Math.max(...loaded.map(c => c.count));
+  el.innerHTML = loaded.map(c => {
     const errPct = (c.error_rate * 100).toFixed(0);
     const errClass = c.error_rate >= 0.5 ? 'high' : c.error_rate > 0 ? 'mid' : 'none';
     const bar = (c.count / maxCount) * 100;
@@ -95,6 +136,13 @@ async function load() {
     `;
   }).join('');
 }
-load();
+
+document.getElementById('mode-input').addEventListener('change', () => loadClusters(true));
+document.getElementById('load-more').addEventListener('click', () => loadClusters(false));
+
+(async () => {
+  await loadSummary();
+  await loadClusters(true);
+})();
 </script>
 {% endblock %}

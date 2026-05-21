@@ -28,7 +28,8 @@ def test_export_import_roundtrip(tmp_path, monkeypatch):
 
     imported, skipped = export.import_lines(lines)
     assert imported == 1
-    assert skipped == 0
+    # Skipped count is 1 because of the header line that export_all now emits.
+    assert skipped == 1
 
     assert storage.get_trace_tags(original_id) == original_tags
     assert storage.get_trace_metrics(original_id) == original_metrics
@@ -41,10 +42,10 @@ def test_export_import_skips_existing():
     buf = io.StringIO()
     export.export_all(buf)
     lines = buf.getvalue().splitlines()
-    # Re-import into the same DB → all should be skipped
+    # Re-import into the same DB → all should be skipped (including the header)
     imported, skipped = export.import_lines(lines)
     assert imported == 0
-    assert skipped == len(lines)
+    assert skipped == len(lines)  # header is in `lines` and also counts as skipped
 
 
 def test_snapshot_renders_self_contained_html():

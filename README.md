@@ -167,12 +167,10 @@ agentlog db-path                                   # print SQLite path
 
 ## Known limitations
 
-- Reorderings split clusters — v0.4 target.
-- Native wrappers only for Anthropic and OpenAI. Bedrock + Vertex work through `wrap_anthropic` because the Anthropic SDK's Bedrock/Vertex clients share `.messages.create`.
-- Streaming responses are logged on completion only, not chunk-by-chunk.
-- Replay with prompt diff is not yet implemented — machinery is there, diff stage is v0.4.
-- No retention policy. The DB grows until you delete it; `~/.agentlog/traces.db` is safe to remove between sessions.
-- Single-user, no auth. See [SECURITY.md](SECURITY.md).
+- **Streaming responses are logged on completion only**, not chunk-by-chunk. The `streaming: true` attribute is recorded so you can filter — but the intermediate chunks aren't captured. v0.5 target.
+- **Replay with prompt diff is half-built** — `agentlog replay` re-runs with captured args; modifying the prompt before re-invocation is not yet exposed. v0.5.
+- **Native wrappers only for Anthropic and OpenAI.** Bedrock + Vertex work through `wrap_anthropic` (shared `.messages.create` interface). Gemini works through OpenTelemetry.
+- **Single-user, no auth.** Dashboard is intended for `127.0.0.1`. See [SECURITY.md](SECURITY.md).
 
 ## Contributing
 

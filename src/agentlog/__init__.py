@@ -1,4 +1,5 @@
 """agentlog — zero-config local-first instrumentation for LLM agents."""
+import atexit as _atexit
 
 from agentlog.storage import get_db_path
 from agentlog.trace import metric, span, tag, tool_call, trace
@@ -9,11 +10,33 @@ __all__ = [
     "tool_call",
     "tag",
     "metric",
+    "flush",
     "wrap_anthropic",
     "wrap_openai",
     "get_db_path",
 ]
-__version__ = "0.3.1"
+__version__ = "0.4.0"
+
+
+def flush() -> int:
+    """Best-effort cleanup of orphan traces before process exit.
+
+    Synchronous, idempotent. Returns the number of traces finalized.
+    """
+    from agentlog.maintenance import flush as _flush
+    return _flush()
+
+
+# Register a shutdown hook so a crashed/killed process at least leaves the DB
+# in a coherent state next time the dashboard reads it.
+def _shutdown_cleanup() -> None:
+    try:
+        flush()
+    except Exception:
+        pass
+
+
+_atexit.register(_shutdown_cleanup)
 
 
 def wrap_anthropic(client):
