@@ -26,6 +26,7 @@ from typing import IO
 
 from clustertrace.importers.langfuse import import_langfuse
 from clustertrace.importers.langsmith import import_langsmith
+from clustertrace.importers.otel import import_otlp
 from clustertrace.importers.phoenix import import_phoenix
 
 # Stream input is either a file-like object or any iterable of strings.
@@ -35,6 +36,7 @@ SOURCES: dict[str, ImporterFn] = {
     "langfuse": import_langfuse,
     "phoenix": import_phoenix,
     "langsmith": import_langsmith,
+    "otel": import_otlp,
 }
 
 SUPPORTED = ", ".join(sorted(SOURCES.keys()))
@@ -45,4 +47,5 @@ __all__ = [
     "import_langfuse",
     "import_phoenix",
     "import_langsmith",
+    "import_otlp",
 ]
