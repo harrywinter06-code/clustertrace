@@ -1,6 +1,7 @@
 """clustertrace CLI — launches the dashboard and runs maintenance/export commands."""
 from __future__ import annotations
 
+import json
 import sys
 
 import click
@@ -288,6 +289,147 @@ def vacuum(older_than: str, dry_run: bool) -> None:
     else:
         mb = freed / (1024 * 1024)
         click.echo(f"deleted {n} trace(s), reclaimed {mb:.2f} MB")
+
+
+@main.group("mcp", invoke_without_command=True)
+@click.option(
+    "--http",
+    "http_port",
+    type=int,
+    default=None,
+    help="Reserved — HTTP transport is not yet shipped. v0.9 supports stdio only.",
+)
+@click.pass_context
+def mcp_group(ctx: click.Context, http_port: int | None) -> None:
+    """Start the clustertrace MCP server (stdio by default).
+
+    With no subcommand, this starts the server reading JSON-RPC on stdin and
+    writing on stdout — the shape Claude Code / Cursor / Continue expect.
+
+    Run `clustertrace mcp install --target claude-code` to wire it up.
+    """
+    if ctx.invoked_subcommand is not None:
+        return
+    if http_port is not None:
+        # Decision boundary: stdio only in v0.9 (see roadmap). HTTP arrives
+        # when there's a concrete client that needs it.
+        raise click.ClickException(
+            "HTTP transport is not yet supported in v0.9 — use stdio "
+            "(the default) with Claude Code / Cursor / Continue."
+        )
+    try:
+        import mcp  # noqa: F401
+    except ImportError:
+        click.echo(
+            "the MCP SDK is not installed.\n"
+            'install it with: pip install "clustertrace[mcp]"',
+            err=True,
+        )
+        sys.exit(2)
+    from clustertrace.mcp_server import main as mcp_main
+
+    sys.exit(mcp_main())
+
+
+@mcp_group.command("install")
+@click.option(
+    "--target",
+    type=click.Choice(["claude-code", "cursor", "continue"]),
+    default=None,
+    help="Editor whose MCP config should be edited. If omitted, prints the snippet.",
+)
+@click.option(
+    "--name",
+    "server_name",
+    default="clustertrace",
+    show_default=True,
+    help="Server entry name (the key under mcpServers).",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show what would be written without modifying the editor config.",
+)
+def mcp_install(target: str | None, server_name: str, dry_run: bool) -> None:
+    """Write an MCP-server entry into the target editor's config file."""
+    from clustertrace.mcp_server import install as _install
+
+    snippet = _install.snippet(name=server_name)
+    if target is None:
+        click.echo("# Paste this into your editor's MCP config (mcpServers map):")
+        click.echo(json.dumps({server_name: snippet}, indent=2))
+        return
+
+    path = _install.config_path_for(target)
+    if dry_run:
+        click.echo(f"# would write to {path}:")
+        click.echo(json.dumps({server_name: snippet}, indent=2))
+        return
+    try:
+        result = _install.install(target=target, name=server_name)
+    except _install.InstallError as e:
+        raise click.ClickException(str(e)) from e
+    click.echo(f"installed clustertrace MCP entry in {result.path}")
+    if result.backup_path is not None:
+        click.echo(f"backup: {result.backup_path}")
+
+
+@main.command("inspect")
+@click.argument("trace_id", required=False)
+@click.option(
+    "--latest",
+    is_flag=True,
+    help="Pick the most recent trace if no id is given.",
+)
+@click.option(
+    "--failed",
+    is_flag=True,
+    help="Pick the most recent failed trace (overrides --latest).",
+)
+@click.option(
+    "--expand",
+    "expand",
+    multiple=True,
+    help="Span id(s) whose input/output JSON to show in full. Repeatable.",
+)
+@click.option(
+    "--width",
+    type=int,
+    default=None,
+    help="Output width (default: terminal width).",
+)
+@click.option(
+    "--no-color",
+    is_flag=True,
+    help="Disable ANSI colors (useful when piping).",
+)
+def inspect_cmd(
+    trace_id: str | None,
+    latest: bool,
+    failed: bool,
+    expand: tuple[str, ...],
+    width: int | None,
+    no_color: bool,
+) -> None:
+    """Render a trace as a rich Gantt + I/O tree in the terminal.
+
+    Works fully offline — pure-local SQLite reads. No network is touched.
+    """
+    from clustertrace import inspect as _inspect
+
+    try:
+        chosen_id = _inspect.resolve_trace_id(
+            trace_id=trace_id, latest=latest, failed=failed
+        )
+    except _inspect.InspectError as e:
+        raise click.ClickException(str(e)) from e
+
+    _inspect.render_to_console(
+        chosen_id,
+        expand_span_ids=set(expand),
+        width=width,
+        no_color=no_color,
+    )
 
 
 @main.command("judge")

@@ -4,6 +4,64 @@ All notable changes to clustertrace. Format roughly follows [Keep a Changelog](h
 
 > **Renamed from `agentlog` to `clustertrace` in v0.5.0** — PyPI's name-similarity check rejected `agentlog` as too close to the existing `agentlogger` package. The new name lands the differentiator (clustering of traces) more directly anyway.
 
+## [0.9.0] — 2026-05-22
+
+### Added — Phase 4: IDE-native
+
+Two surfaces that bring clustertrace into the editor:
+
+#### `clustertrace mcp` — Model Context Protocol server
+
+Exposes clustertrace's data model as tools to any MCP-capable AI editor — Claude Code, Cursor, Continue. "Show me a failing trace of this pattern" or "diff this trace against a successful one" is now a single AI assistant command.
+
+Six read-only tools:
+
+- `list_clusters(limit, mode, threshold)` — distinct execution patterns with counts + failure rate
+- `get_trace(trace_id)` — full record (trace + spans + tags)
+- `search(query, limit)` — FTS5 search over span name + I/O + error messages
+- `failure_summary(group_by_tag)` — aggregate failure-pattern view
+- `recent_failed(limit)` — N most recent traces with status=error
+- `compare_traces(a_trace_id, b_trace_id)` — Wagner-Fischer edit script between two traces (most useful with `cluster_drift` output)
+
+`clustertrace mcp install --target {claude-code|cursor|continue}` merges into the editor's MCP config with a timestamped backup. Without `--target`, prints the JSON snippet to paste manually. Optional install: `pip install "clustertrace[mcp]"`. v0.9 ships stdio transport only; HTTP arrives when there's a concrete client that needs it. Read-only by design — mutation tools (annotate/assert) land in v1.0 after we see how the read-only surface gets used.
+
+#### `clustertrace inspect <trace_id>` — terminal TUI
+
+Renders one trace as a `rich`-formatted header + ASCII Gantt + nested span tree. Fully offline (pure SQLite reads). Good for SSH'd-in debugging where you can't pop open a browser.
+
+- `clustertrace inspect <id>` — by id
+- `--latest` — most recent trace
+- `--failed` — most recent failed trace
+- `--expand <span_id>` (repeatable) — dump that span's input/output/attrs
+- `--no-color` and `--width` for piping and snapshot tests
+
+Status icons: `✓` ok / `✗` error / `◌` running. Error rows surface `error_type: message` under the node. Renderer's column math is bounded — output never exceeds the requested width (verified at 80 and 200 cols).
+
+### Dependencies
+- `rich>=13` is now a hard dep (needed for `inspect`, small and useful)
+- `mcp>=1.0` is an optional extra (`clustertrace[mcp]`)
+
+### Testing
+- 32 new MCP tests (schema coverage, dispatch, every tool's shape, config-file merge + backup + idempotency, real-runtime server construction)
+- 15 new inspect tests (resolver paths, width invariants, --expand JSON dump, CLI surface)
+- Total suite 174 → 221 passing.
+
+## [0.8.0] — 2026-05-22
+
+### Added — Phase 3: eval loop
+
+Three surfaces that turn the cluster view into something you can write rules against, not just stare at.
+
+1. **LLM-as-judge on cluster representatives.** New `clustertrace.judge` module: `JudgeVerdict` dataclass, `no_exceptions_evaluator` (free, default), `llm_judge_evaluator(rubric, model=...)` (Anthropic SDK, defers API-key check to call time). `evaluate_cluster(sig_hash, evaluator, n_samples=3)` and `evaluate_all_clusters(...)` with deterministic sampling per-sig_hash so reports are reproducible. CLI: `clustertrace judge [--rubric <text>] [--samples 3] [--max-cost-usd 0.50] [--model claude-haiku-4-5-20251001]` emits a markdown report. Cost-cap enforced *before* any LLM calls; verified on demo data ($0.0001 cap aborts cleanly). Dashboard `/api/clusters` attaches `latest_judgment`.
+2. **Cluster annotations.** `clustertrace.annotate_cluster(sig_hash, status=..., note=..., tag=...)` with statuses `expected-failure` / `wontfix` / `priority` / `acceptable`; 4096-char note cap; append-deduped tags. Storage is keyed on `sig_hash` so annotations survive `clustertrace vacuum`. CLI: `clustertrace annotate <sig_hash> --status ... --note ... --tag ...` (`--status clear` removes). `/clusters` cards show an annotation badge with an inline editor (POST `/api/cluster-annotations`). `/api/failure-summary` drops `expected-failure` clusters from the headline count with a `+N expected, hidden` footnote.
+3. **Cluster pass/fail assertions + `clustertrace check` CLI.** Four rule kinds: `success_rate_above`, `avg_latency_below`, `avg_cost_below`, `no_new_traces`. `over_last` window in `traces` (count) or `seconds` (time). `clustertrace assert <sig_hash> --success-rate-above 0.9 --over-last 100` persists one rule per invocation; `clustertrace check` evaluates all of them and exits 0/1. `--format json` emits a CI-consumable payload (`{"passed": bool, "n_assertions": N, "n_failed": N, "results": [...]}`). By default, assertions on `expected-failure` clusters don't tank the exit code; `--include-expected-failures` overrides.
+
+### Schema
+Schema v4 migration adds `cluster_judgments`, `cluster_annotations`, `cluster_assertions`. Idempotent, runs once per DB.
+
+### Testing
+- 50 new tests across judge / annotations / assertions / check CLI. Total suite 174 → 224 passing.
+
 ## [0.7.1] — 2026-05-21
 
 ### Fixed (rigorous red-team pass found three real bugs)

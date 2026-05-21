@@ -18,7 +18,7 @@ __all__ = [
     "clear_cluster_annotation",
     "get_cluster_annotation",
 ]
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 
 def flush() -> int:
