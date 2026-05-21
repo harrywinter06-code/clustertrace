@@ -4,6 +4,22 @@ All notable changes to clustertrace. Format roughly follows [Keep a Changelog](h
 
 > **Renamed from `agentlog` to `clustertrace` in v0.5.0** — PyPI's name-similarity check rejected `agentlog` as too close to the existing `agentlogger` package. The new name lands the differentiator (clustering of traces) more directly anyway.
 
+## [0.6.0] — 2026-05-21
+
+### Added — Phase 1: cluster depth
+
+Three additions that turn the cluster view from "interesting list" into "where you go when something broke after your last deploy."
+
+1. **Tree-edit-distance clustering** — `mode='tree_edit'` groups traces whose `(name, status)` token sequences differ by ≤ `max(2, 0.1 × median length)` Wagner-Fischer edit operations. One extra retry or a single reordering no longer splits a cluster. Threshold is configurable via `clustertrace.cluster.set_tree_edit_threshold(N)` or the new `threshold=` query param on `/api/clusters`. Dashboard `/clusters` toggle gains a third option. Wagner-Fischer uses a `max_distance` early-exit bound so the inner loop short-circuits as soon as a candidate canonical is provably too far; 1,000 traces cluster in well under the 5s wall budget.
+2. **Drift detection** — new `GET /api/cluster-drift?window=24h&compare=24h` returns each cluster's failure-rate change between two adjacent time windows. Sorted by `abs(delta)` desc; clusters with `<3` traces in the current window are filtered out as noise. New `/drift` dashboard page with before/after rates and direction arrows. Reuses the existing `signature` column — no schema migration.
+3. **Auto-repro CLI** — `clustertrace repro <sig_hash_or_trace_id> --entry mod:fn [--mode positive|negative] [--out path]` emits a pytest file that imports the entrypoint, inlines the captured args/kwargs as Python literals, and asserts either no-raise (positive) or the original error type (negative). For a sig_hash, the most recent failing trace seeds. Truncated root inputs are flagged with a TODO comment instead of fabricated args.
+
+### Testing
+- 38 new tests across `tests/test_tree_edit.py`, `tests/test_drift.py`, `tests/test_repro.py`. Total suite: 105 → 143.
+
+### No schema migration
+Drift and tree-edit operate on the existing `traces.signature` column. Repro needs no schema.
+
 ## [0.5.1] — 2026-05-21
 
 ### Fixed (rigorous red-team pass found four real bugs)
