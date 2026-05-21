@@ -111,6 +111,50 @@ _MIGRATIONS: list[str] = [
     FROM spans
     WHERE id NOT IN (SELECT span_id FROM spans_fts);
     """,
+    # v4 — eval-loop tables: cluster_judgments, cluster_annotations, cluster_assertions
+    #
+    # Keyed by sig_hash (short stable hash of the structural signature) rather
+    # than the raw signature string — the dashboard and CLI use the hash
+    # everywhere and it keeps the table indexes compact.
+    #
+    # Annotations and assertions survive `clustertrace vacuum`: they are NOT
+    # joined to traces by FK, so deleting old traces leaves them intact. The
+    # brief calls this out explicitly. They become orphans only if every
+    # trace in the cluster is gone AND a future cleanup explicitly opts in.
+    """
+    CREATE TABLE IF NOT EXISTS cluster_judgments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sig_hash TEXT NOT NULL,
+        evaluator_name TEXT NOT NULL,
+        timestamp REAL NOT NULL,
+        pass_count INTEGER NOT NULL DEFAULT 0,
+        fail_count INTEGER NOT NULL DEFAULT 0,
+        notes_json TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_cluster_judgments_sig_hash
+        ON cluster_judgments(sig_hash);
+    CREATE INDEX IF NOT EXISTS idx_cluster_judgments_timestamp
+        ON cluster_judgments(timestamp DESC);
+
+    CREATE TABLE IF NOT EXISTS cluster_annotations (
+        sig_hash TEXT PRIMARY KEY,
+        status TEXT,
+        note TEXT,
+        tags_json TEXT,
+        updated_at REAL NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_cluster_annotations_status
+        ON cluster_annotations(status);
+
+    CREATE TABLE IF NOT EXISTS cluster_assertions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sig_hash TEXT NOT NULL,
+        rule_json TEXT NOT NULL,
+        created_at REAL NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_cluster_assertions_sig_hash
+        ON cluster_assertions(sig_hash);
+    """,
 ]
 _SCHEMA_VERSION = len(_MIGRATIONS)
 
@@ -391,6 +435,298 @@ def set_span_cost(span_id: str, cost_usd: float) -> None:
 def set_trace_cost(trace_id: str, cost_usd: float) -> None:
     with connect() as conn:
         conn.execute("UPDATE traces SET cost_usd = ? WHERE id = ?", (cost_usd, trace_id))
+
+
+# --- Cluster annotations ---------------------------------------------------
+
+
+_ANNOTATION_STATUSES = {"expected-failure", "wontfix", "priority", "acceptable"}
+_ANNOTATION_NOTE_MAX = 4096
+
+
+def upsert_cluster_annotation(
+    sig_hash: str,
+    *,
+    status: str | None = None,
+    note: str | None = None,
+    tag: str | None = None,
+    updated_at: float | None = None,
+) -> dict[str, Any]:
+    """Idempotent UPSERT of a cluster annotation.
+
+    Semantics (mirrors `clustertrace.annotate_cluster`):
+      - `status`: replaces the previous status. Pass None to clear it only if
+        no other field is set; otherwise the existing status is preserved.
+      - `note`: replaces the previous note when not None; pass empty string to clear.
+      - `tag`: appended to the existing tag list (deduped). Pass None to leave alone.
+        Use `set_cluster_annotation_tags()` to replace the full list.
+
+    Returns the resulting row as a dict.
+    """
+    if status is not None and status not in _ANNOTATION_STATUSES:
+        raise ValueError(
+            f"unknown annotation status {status!r}; allowed: "
+            f"{sorted(_ANNOTATION_STATUSES)} or None to clear"
+        )
+    if note is not None and len(note) > _ANNOTATION_NOTE_MAX:
+        raise ValueError(
+            f"note exceeds {_ANNOTATION_NOTE_MAX} chars (got {len(note)})"
+        )
+    if updated_at is None:
+        import time
+
+        updated_at = time.time()
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT status, note, tags_json FROM cluster_annotations WHERE sig_hash = ?",
+            (sig_hash,),
+        ).fetchone()
+        existing_status = row["status"] if row else None
+        existing_note = row["note"] if row else None
+        existing_tags_raw = row["tags_json"] if row else None
+        try:
+            existing_tags = json.loads(existing_tags_raw) if existing_tags_raw else []
+            if not isinstance(existing_tags, list):
+                existing_tags = []
+        except (ValueError, TypeError):
+            existing_tags = []
+
+        new_status = status if status is not None else existing_status
+        new_note = note if note is not None else existing_note
+        new_tags = list(existing_tags)
+        if tag is not None:
+            if tag not in new_tags:
+                new_tags.append(tag)
+        tags_json = json.dumps(new_tags) if new_tags else None
+
+        conn.execute(
+            """INSERT INTO cluster_annotations(sig_hash, status, note, tags_json, updated_at)
+               VALUES(?, ?, ?, ?, ?)
+               ON CONFLICT(sig_hash) DO UPDATE SET
+                 status = excluded.status,
+                 note = excluded.note,
+                 tags_json = excluded.tags_json,
+                 updated_at = excluded.updated_at""",
+            (sig_hash, new_status, new_note, tags_json, updated_at),
+        )
+    return {
+        "sig_hash": sig_hash,
+        "status": new_status,
+        "note": new_note,
+        "tags": new_tags,
+        "updated_at": updated_at,
+    }
+
+
+def clear_cluster_annotation(sig_hash: str) -> bool:
+    """Remove an annotation entirely. Returns True iff a row was deleted."""
+    with connect() as conn:
+        cur = conn.execute(
+            "DELETE FROM cluster_annotations WHERE sig_hash = ?", (sig_hash,)
+        )
+    return cur.rowcount > 0
+
+
+def set_cluster_annotation_tags(sig_hash: str, tags: list[str], updated_at: float | None = None) -> None:
+    """Replace the tag list (rather than append)."""
+    if updated_at is None:
+        import time
+
+        updated_at = time.time()
+    with connect() as conn:
+        conn.execute(
+            """INSERT INTO cluster_annotations(sig_hash, status, note, tags_json, updated_at)
+               VALUES(?, NULL, NULL, ?, ?)
+               ON CONFLICT(sig_hash) DO UPDATE SET
+                 tags_json = excluded.tags_json,
+                 updated_at = excluded.updated_at""",
+            (sig_hash, json.dumps(tags) if tags else None, updated_at),
+        )
+
+
+def get_cluster_annotation(sig_hash: str) -> dict[str, Any] | None:
+    with connect() as conn:
+        row = conn.execute(
+            """SELECT sig_hash, status, note, tags_json, updated_at
+               FROM cluster_annotations WHERE sig_hash = ?""",
+            (sig_hash,),
+        ).fetchone()
+    if row is None:
+        return None
+    try:
+        tags = json.loads(row["tags_json"]) if row["tags_json"] else []
+        if not isinstance(tags, list):
+            tags = []
+    except (ValueError, TypeError):
+        tags = []
+    return {
+        "sig_hash": row["sig_hash"],
+        "status": row["status"],
+        "note": row["note"],
+        "tags": tags,
+        "updated_at": row["updated_at"],
+    }
+
+
+def list_cluster_annotations() -> list[dict[str, Any]]:
+    """Return all annotations keyed by sig_hash."""
+    with connect() as conn:
+        rows = conn.execute(
+            """SELECT sig_hash, status, note, tags_json, updated_at
+               FROM cluster_annotations ORDER BY updated_at DESC"""
+        ).fetchall()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        try:
+            tags = json.loads(r["tags_json"]) if r["tags_json"] else []
+            if not isinstance(tags, list):
+                tags = []
+        except (ValueError, TypeError):
+            tags = []
+        out.append(
+            {
+                "sig_hash": r["sig_hash"],
+                "status": r["status"],
+                "note": r["note"],
+                "tags": tags,
+                "updated_at": r["updated_at"],
+            }
+        )
+    return out
+
+
+# --- Cluster judgments ----------------------------------------------------
+
+
+def insert_cluster_judgment(
+    sig_hash: str,
+    evaluator_name: str,
+    timestamp: float,
+    pass_count: int,
+    fail_count: int,
+    notes: dict[str, Any] | None,
+) -> int:
+    with connect() as conn:
+        cur = conn.execute(
+            """INSERT INTO cluster_judgments
+               (sig_hash, evaluator_name, timestamp, pass_count, fail_count, notes_json)
+               VALUES(?, ?, ?, ?, ?, ?)""",
+            (
+                sig_hash,
+                evaluator_name,
+                timestamp,
+                pass_count,
+                fail_count,
+                _dumps(notes) if notes is not None else None,
+            ),
+        )
+    return int(cur.lastrowid or 0)
+
+
+def get_latest_cluster_judgment(sig_hash: str) -> dict[str, Any] | None:
+    with connect() as conn:
+        row = conn.execute(
+            """SELECT id, sig_hash, evaluator_name, timestamp, pass_count, fail_count, notes_json
+               FROM cluster_judgments
+               WHERE sig_hash = ?
+               ORDER BY timestamp DESC LIMIT 1""",
+            (sig_hash,),
+        ).fetchone()
+    if row is None:
+        return None
+    try:
+        notes = json.loads(row["notes_json"]) if row["notes_json"] else None
+    except (ValueError, TypeError):
+        notes = None
+    return {
+        "id": row["id"],
+        "sig_hash": row["sig_hash"],
+        "evaluator_name": row["evaluator_name"],
+        "timestamp": row["timestamp"],
+        "pass_count": row["pass_count"],
+        "fail_count": row["fail_count"],
+        "notes": notes,
+    }
+
+
+def latest_judgments_by_sig_hash(sig_hashes: list[str]) -> dict[str, dict[str, Any]]:
+    """Bulk variant of `get_latest_cluster_judgment` for the dashboard."""
+    if not sig_hashes:
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    placeholders = ",".join("?" for _ in sig_hashes)
+    with connect() as conn:
+        # Window-function pattern: take the most recent row per sig_hash.
+        rows = conn.execute(
+            f"""SELECT id, sig_hash, evaluator_name, timestamp, pass_count, fail_count, notes_json,
+                       ROW_NUMBER() OVER (PARTITION BY sig_hash ORDER BY timestamp DESC) AS rn
+                FROM cluster_judgments
+                WHERE sig_hash IN ({placeholders})""",
+            sig_hashes,
+        ).fetchall()
+    for r in rows:
+        if r["rn"] != 1:
+            continue
+        try:
+            notes = json.loads(r["notes_json"]) if r["notes_json"] else None
+        except (ValueError, TypeError):
+            notes = None
+        out[r["sig_hash"]] = {
+            "id": r["id"],
+            "sig_hash": r["sig_hash"],
+            "evaluator_name": r["evaluator_name"],
+            "timestamp": r["timestamp"],
+            "pass_count": r["pass_count"],
+            "fail_count": r["fail_count"],
+            "notes": notes,
+        }
+    return out
+
+
+# --- Cluster assertions ---------------------------------------------------
+
+
+def insert_cluster_assertion(
+    sig_hash: str, rule: dict[str, Any], created_at: float
+) -> int:
+    with connect() as conn:
+        cur = conn.execute(
+            """INSERT INTO cluster_assertions(sig_hash, rule_json, created_at)
+               VALUES(?, ?, ?)""",
+            (sig_hash, json.dumps(rule), created_at),
+        )
+    return int(cur.lastrowid or 0)
+
+
+def list_cluster_assertions() -> list[dict[str, Any]]:
+    with connect() as conn:
+        rows = conn.execute(
+            """SELECT id, sig_hash, rule_json, created_at FROM cluster_assertions
+               ORDER BY created_at ASC"""
+        ).fetchall()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        try:
+            rule = json.loads(r["rule_json"])
+        except (ValueError, TypeError):
+            rule = {}
+        out.append(
+            {
+                "id": r["id"],
+                "sig_hash": r["sig_hash"],
+                "rule": rule,
+                "created_at": r["created_at"],
+            }
+        )
+    return out
+
+
+def delete_cluster_assertion(assertion_id: int) -> bool:
+    with connect() as conn:
+        cur = conn.execute(
+            "DELETE FROM cluster_assertions WHERE id = ?", (assertion_id,)
+        )
+    return cur.rowcount > 0
 
 
 def insert_span(
