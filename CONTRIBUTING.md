@@ -5,7 +5,7 @@ clustertrace is small on purpose. Before adding a feature, read [ARCHITECTURE.md
 ## Setup
 
 ```bash
-git clone https://github.com/harrywinter06/clustertrace
+git clone https://github.com/harrywinter06-code/clustertrace
 cd clustertrace
 uv venv
 uv pip install -e ".[anthropic,openai,dev]"

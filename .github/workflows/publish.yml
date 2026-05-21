@@ -24,7 +24,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v3
         with:
-          enable-cache: true
+          enable-cache: false  # uv.lock is gitignored
 
       - name: Set up Python
         run: uv python install 3.12

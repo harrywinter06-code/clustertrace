@@ -37,7 +37,7 @@ dev = [
 clustertrace = "clustertrace.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/harrywinter06/clustertrace"
+Homepage = "https://github.com/harrywinter06-code/clustertrace"
 
 [build-system]
 requires = ["hatchling"]

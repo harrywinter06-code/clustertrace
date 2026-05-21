@@ -6,7 +6,7 @@
 
 **Local-first LLM agent observability that tells you *which clusters* of traces are failing — not which individual ones.**
 
-[![tests](https://github.com/harrywinter06/clustertrace/actions/workflows/test.yml/badge.svg)](https://github.com/harrywinter06/clustertrace/actions/workflows/test.yml)
+[![tests](https://github.com/harrywinter06-code/clustertrace/actions/workflows/test.yml/badge.svg)](https://github.com/harrywinter06-code/clustertrace/actions/workflows/test.yml)
 [![pypi](https://img.shields.io/pypi/v/clustertrace.svg)](https://pypi.org/project/clustertrace/)
 [![python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -26,7 +26,7 @@ pip install clustertrace
 clustertrace demo
 ```
 
-60 pre-recorded traces of three agents (research, RAG, tool-use), dashboard auto-launches, no API spend. *Pre-PyPI:* `pip install "clustertrace @ git+https://github.com/harrywinter06/clustertrace"`.
+60 pre-recorded traces of three agents (research, RAG, tool-use), dashboard auto-launches, no API spend. *Pre-PyPI:* `pip install "clustertrace @ git+https://github.com/harrywinter06-code/clustertrace"`.
 
 ---
 
