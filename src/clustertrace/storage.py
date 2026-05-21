@@ -148,12 +148,25 @@ def _ensure_initialized(path: Path) -> None:
         if key in _initialized:
             return
         path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(str(path)) as conn:
+        with sqlite3.connect(str(path), timeout=10.0) as conn:
+            # Set WAL once here, while we hold the init lock. WAL is persistent
+            # on the file header so subsequent connections inherit it without
+            # needing to issue the (exclusive-lock-acquiring) PRAGMA themselves.
+            # That was the root cause of the multi-threaded "database is locked"
+            # race: each worker thread tried to set WAL on its own connection
+            # while another thread's connection was already holding a shared lock.
+            conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(_BOOTSTRAP)
             row = conn.execute(
                 "SELECT value FROM schema_meta WHERE key = 'version'"
             ).fetchone()
             applied = int(row[0]) if row else 0
+            if applied > _SCHEMA_VERSION:
+                raise RuntimeError(
+                    f"Database schema is version {applied}, but this clustertrace "
+                    f"only knows up to version {_SCHEMA_VERSION}. Upgrade clustertrace "
+                    f"or point CLUSTERTRACE_DB at a different file."
+                )
             for i in range(applied, _SCHEMA_VERSION):
                 conn.executescript(_MIGRATIONS[i])
             if applied < _SCHEMA_VERSION:
@@ -166,7 +179,13 @@ def _ensure_initialized(path: Path) -> None:
 
 
 def _get_or_open_connection(path: Path) -> sqlite3.Connection:
-    """Return a thread-local SQLite connection, opening it on first use."""
+    """Return a thread-local SQLite connection, opening it on first use.
+
+    Does NOT re-set PRAGMA journal_mode=WAL here — that's set once during
+    `_ensure_initialized`, and WAL is persistent on the file header. Setting
+    it per-connection caused a multi-thread race (PRAGMA needs an exclusive
+    lock, but other connections in the pool are already holding shared locks).
+    """
     pool = getattr(_local, "connections", None)
     if pool is None:
         pool = {}
@@ -174,9 +193,8 @@ def _get_or_open_connection(path: Path) -> sqlite3.Connection:
     key = str(path.resolve())
     conn = pool.get(key)
     if conn is None:
-        conn = sqlite3.connect(str(path), timeout=5.0, isolation_level=None)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
+        conn = sqlite3.connect(str(path), timeout=10.0, isolation_level=None)
+        conn.execute("PRAGMA foreign_keys=ON")  # per-connection setting, no lock needed
         conn.row_factory = sqlite3.Row
         pool[key] = conn
     return conn
@@ -225,12 +243,37 @@ def _max_payload_bytes() -> int:
         return 32_768
 
 
+def _sanitize_nonfinite(o: Any) -> Any:
+    """Walk a structure replacing NaN/Inf floats with None.
+
+    Python's json.dumps emits these as non-standard literals (NaN, Infinity)
+    that JSON.parse + RFC-strict encoders (e.g. FastAPI's default) reject.
+    Stored data should be valid JSON or it crashes the dashboard on readback.
+    """
+    if isinstance(o, float):
+        if o != o or o == float("inf") or o == float("-inf"):
+            return None
+        return o
+    if isinstance(o, dict):
+        return {k: _sanitize_nonfinite(v) for k, v in o.items()}
+    if isinstance(o, list | tuple):
+        return [_sanitize_nonfinite(x) for x in o]
+    return o
+
+
 def _dumps(obj: Any) -> str | None:
     if obj is None:
         return None
+    # First attempt: strict JSON (rejects NaN/Inf). If the payload contains
+    # non-finite floats we walk it and replace them with null, then re-serialize.
     try:
-        s = json.dumps(obj, default=_fallback_serializer)
-    except (TypeError, ValueError):
+        s = json.dumps(obj, default=_fallback_serializer, allow_nan=False)
+    except ValueError:
+        try:
+            s = json.dumps(_sanitize_nonfinite(obj), default=_fallback_serializer, allow_nan=False)
+        except (TypeError, ValueError):
+            s = json.dumps({"__repr__": repr(obj)[:1000]})
+    except TypeError:
         s = json.dumps({"__repr__": repr(obj)[:1000]})
     cap = _max_payload_bytes()
     if len(s) > cap:

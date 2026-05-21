@@ -4,6 +4,23 @@ All notable changes to clustertrace. Format roughly follows [Keep a Changelog](h
 
 > **Renamed from `agentlog` to `clustertrace` in v0.5.0** — PyPI's name-similarity check rejected `agentlog` as too close to the existing `agentlogger` package. The new name lands the differentiator (clustering of traces) more directly anyway.
 
+## [0.5.1] — 2026-05-21
+
+### Fixed (rigorous red-team pass found four real bugs)
+
+1. **NaN / Infinity in trace I/O crashed `/api/trace/<id>` with a 500.** Python's `json.dumps` happily emitted non-standard `NaN` / `Infinity` literals which then crashed the dashboard's strict response encoder. `_dumps` now uses `allow_nan=False` and walks the payload to sanitize non-finite floats to `null` on the way in.
+2. **Multi-threaded `storage.connect()` raced on `PRAGMA journal_mode=WAL`** with "database is locked." After the v0.4 connection pool change, each new thread's connection tried to set WAL while the other threads' pooled connections held shared locks. PRAGMA WAL needs an exclusive lock. Fix: set WAL once during `_ensure_initialized` under the global init lock; subsequent connections inherit WAL from the file header.
+3. **Span names containing `|` or `:` corrupted cluster signature decoding.** The signature format `name:status|name:status|...` lost structure when names contained the separators — `|` produced 1-element pattern tuples; `:` folded the rest of the name into the status field. Both characters are now percent-encoded in signatures (`%7C`, `%3A`) with a matching decoder. `%` itself is escaped as `%25` for full round-trip safety.
+4. **Opening a DB created by a newer clustertrace silently accepted it**, then the next write blew up with a cryptic SQLite error. Now: `_ensure_initialized` raises a clear `RuntimeError` naming the version mismatch and pointing the user at the fix.
+
+### Added
+- `tests/test_red_team.py` — 8 regression tests covering each bug above. Total suite: 95 → 105 tests.
+
+### Not fixed (intentionally)
+- `limit=0` on `/api/traces` returns 1 trace, not 0. The clamp `max(1, min(limit, 500))` is the intended UX (asking for "no results" via a parameter is unusual). Documented as a quirk.
+- `CLI snapshot --out <path>` has no validation. By design — the user is choosing where to write on their own machine.
+- Tag key/value have no length cap. The user is the only writer; no DoS surface.
+
 ## [0.5.0] — 2026-05-20
 
 ### Breaking

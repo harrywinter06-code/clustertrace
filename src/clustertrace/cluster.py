@@ -27,6 +27,17 @@ def _normalize_name(name: str) -> str:
     return name
 
 
+# The signature format is `name:status|name:status|...`. If a span name or
+# status contains `|` or `:`, the round-trip (encode then split) loses
+# structure. Encode them as %7C and %3A on the way in; decode on the way out.
+def _escape(s: str) -> str:
+    return s.replace("%", "%25").replace("|", "%7C").replace(":", "%3A")
+
+
+def _unescape(s: str) -> str:
+    return s.replace("%3A", ":").replace("%7C", "|").replace("%25", "%")
+
+
 def signature_for_spans(spans: Iterable[dict], mode: str = "ordered") -> str:
     """Compute a stable signature for a trace from its child spans.
 
@@ -49,17 +60,32 @@ def signature_for_spans(spans: Iterable[dict], mode: str = "ordered") -> str:
     if not rows:
         return "empty"
     if mode == "set":
-        tokens = sorted({f"{_normalize_name(s['name'])}:{s['status']}" for s in rows})
+        tokens = sorted({f"{_escape(_normalize_name(s['name']))}:{_escape(s['status'])}" for s in rows})
         return "|".join(tokens)
     # default: ordered + RLE-collapsed
     parts: list[str] = []
     last: str | None = None
     for s in rows:
-        token = f"{_normalize_name(s['name'])}:{s['status']}"
+        token = f"{_escape(_normalize_name(s['name']))}:{_escape(s['status'])}"
         if token != last:
             parts.append(token)
             last = token
     return "|".join(parts)
+
+
+def _decode_pattern(sig: str) -> list[tuple[str, str]]:
+    """Reverse the encoding used by signature_for_spans. Robust to | and : in names."""
+    if not sig or sig == "empty":
+        return []
+    out: list[tuple[str, str]] = []
+    for part in sig.split("|"):
+        if ":" not in part:
+            # Defensive: legacy signatures stored before escaping, or oddly-shaped data
+            out.append((_unescape(part), ""))
+            continue
+        name, status = part.rsplit(":", 1)
+        out.append((_unescape(name), _unescape(status)))
+    return out
 
 
 def signature_hash(signature: str) -> str:
@@ -142,7 +168,7 @@ def list_clusters(limit: int = 50, offset: int = 0, mode: str = "ordered") -> li
         out: list[Cluster] = []
         for r in rows:
             sig = r["signature"]
-            pattern = [tuple(part.split(":", 1)) for part in sig.split("|")] if sig != "empty" else []
+            pattern = _decode_pattern(sig)
             out.append(
                 Cluster(
                     signature=sig,
@@ -192,7 +218,7 @@ def _list_clusters_set_mode(limit: int = 50, offset: int = 0) -> list[Cluster]:
     ranked = sorted(groups.items(), key=lambda kv: -len(kv[1]["trace_ids"]))[offset:offset + limit]
     out: list[Cluster] = []
     for sig, g in ranked:
-        pattern = [tuple(part.split(":", 1)) for part in sig.split("|")] if sig != "empty" else []
+        pattern = _decode_pattern(sig)
         n = len(g["trace_ids"])
         avg = sum(g["durations"]) / len(g["durations"]) if g["durations"] else None
         out.append(
@@ -221,7 +247,7 @@ def failure_prefix(traces_signatures: list[str]) -> list[tuple[str, str]]:
             prefix.append(first)
         else:
             break
-    return [tuple(p.split(":", 1)) for p in prefix]  # type: ignore[misc]
+    return _decode_pattern("|".join(prefix))
 
 
 def failure_summary(limit_clusters: int = 20, group_by_tag: str | None = "agent") -> dict:
@@ -277,8 +303,7 @@ def failure_summary(limit_clusters: int = 20, group_by_tag: str | None = "agent"
 
     failing_node_counts: dict[tuple[str, str], int] = {}
     for sig in failed_sigs:
-        for part in sig.split("|"):
-            name, status = part.split(":", 1)
+        for name, status in _decode_pattern(sig):
             failing_node_counts[(name, status)] = failing_node_counts.get((name, status), 0) + 1
     failing_nodes = sorted(failing_node_counts.items(), key=lambda kv: -kv[1])
 
