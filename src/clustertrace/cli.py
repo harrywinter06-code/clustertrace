@@ -228,6 +228,36 @@ def replay_cmd(trace_id: str, entry: str) -> None:
         click.echo("replay completed but no new trace id was captured", err=True)
 
 
+@main.command("repro")
+@click.argument("sig_hash_or_trace_id")
+@click.option("--entry", required=True,
+              help="Entrypoint as 'module:function' (e.g. examples.agents:research_agent).")
+@click.option("--mode", type=click.Choice(["positive", "negative"]), default="positive",
+              show_default=True,
+              help="positive=assert no raise; negative=assert original error_type raises.")
+@click.option("--out", "-o", type=click.Path(), default=None,
+              help="Write to this file instead of stdout. "
+                   "Convention: tests/test_repro_<short_hash>.py.")
+def repro_cmd(sig_hash_or_trace_id: str, entry: str, mode: str, out: str | None) -> None:
+    """Generate a pytest reproduction from a captured trace.
+
+    Pass either a trace_id or a sig_hash (from /clusters). For a sig_hash the
+    most recent failing trace in that cluster is used as the seed.
+    """
+    from clustertrace import repro as _repro
+
+    try:
+        src = _repro.generate_repro(sig_hash_or_trace_id, entry, mode=mode)
+    except _repro.ReproError as e:
+        raise click.ClickException(str(e)) from e
+    if out:
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(src)
+        click.echo(f"wrote {out}", err=True)
+    else:
+        sys.stdout.write(src)
+
+
 @main.command()
 @click.option("--stale-after", default="5m", show_default=True,
               help="How long a 'running' trace must sit before being flipped to 'incomplete'.")
