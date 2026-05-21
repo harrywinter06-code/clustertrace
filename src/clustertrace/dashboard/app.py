@@ -22,6 +22,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from clustertrace import annotations as _ann
+from clustertrace import assertions as _ass
 from clustertrace import cluster, drift, maintenance, storage
 from clustertrace.otel import ClustertraceSpanExporter
 
@@ -136,9 +138,14 @@ async def api_clusters(
     # Pass threshold through as a function argument rather than mutating a
     # module-level global — under concurrent FastAPI requests the global
     # would race between the set/read/reset sequence.
-    for cl in cluster.list_clusters(
+    clusters = cluster.list_clusters(
         limit=limit, offset=offset, mode=mode, threshold=threshold
-    ):
+    )
+    sig_hashes = [cl.sig_hash for cl in clusters]
+    annotations_map = {a["sig_hash"]: a for a in _ann.all_annotations()
+                       if a["sig_hash"] in set(sig_hashes)}
+    judgments_map = storage.latest_judgments_by_sig_hash(sig_hashes)
+    for cl in clusters:
         out.append(
             {
                 "signature": cl.signature,
@@ -149,6 +156,8 @@ async def api_clusters(
                 "avg_duration_ms": cl.avg_duration_ms,
                 "representative_trace_id": cl.representative_trace_id,
                 "pattern": [{"name": n, "status": s} for n, s in cl.pattern],
+                "annotation": annotations_map.get(cl.sig_hash),
+                "latest_judgment": judgments_map.get(cl.sig_hash),
             }
         )
     return {"clusters": out, "mode": mode, "limit": limit, "offset": offset}
@@ -156,11 +165,91 @@ async def api_clusters(
 
 @app.get("/api/failure-summary")
 async def api_failure_summary(group_by_tag: str = "agent"):
+    """Failure-pattern summary. Annotated `expected-failure` clusters drop out
+    of the headline counts (with a `+N expected` note), so a known-broken
+    cluster doesn't dominate the page forever.
+    """
     try:
         cluster.backfill_signatures()
     except Exception:
         pass
-    return cluster.failure_summary(group_by_tag=group_by_tag or None)
+    summary = cluster.failure_summary(group_by_tag=group_by_tag or None)
+
+    # Drop expected-failure clusters from the headline `traces_failed` and the
+    # ranked cluster list, but keep them visible under their own counters so
+    # the UI can show the footnote.
+    expected_hashes = _ann.expected_failure_sig_hashes()
+    annotations_map = {a["sig_hash"]: a for a in _ann.all_annotations()}
+    expected_traces_count = 0
+    surviving_clusters: list[dict] = []
+    for c in summary["clusters"]:
+        ann = annotations_map.get(c["sig_hash"])
+        if ann is not None:
+            c = {**c, "annotation": ann}
+        if c["sig_hash"] in expected_hashes:
+            expected_traces_count += int(c["errors"])
+            # surface it but flag it — the dashboard renders these greyed out
+            c = {**c, "expected_failure": True}
+        surviving_clusters.append(c)
+
+    headline_failed = max(0, summary["traces_failed"] - expected_traces_count)
+    total = summary["traces_total"]
+    summary["traces_failed_after_annotations"] = headline_failed
+    summary["expected_failure_traces"] = expected_traces_count
+    summary["overall_failure_rate_after_annotations"] = (
+        (headline_failed / total) if total else 0.0
+    )
+    summary["clusters"] = surviving_clusters
+    return summary
+
+
+@app.get("/api/cluster-judgments/{sig_hash}")
+async def api_cluster_judgments(sig_hash: str):
+    """Return the latest cluster judgment (or None) for a given sig_hash."""
+    return {
+        "sig_hash": sig_hash,
+        "latest": storage.get_latest_cluster_judgment(sig_hash),
+    }
+
+
+@app.post("/api/cluster-annotations")
+async def api_post_cluster_annotation(request: Request):
+    """Create or update an annotation. Body: `{sig_hash, status?, note?, tag?}`."""
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body") from None
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="expected JSON object")
+    sig_hash = payload.get("sig_hash")
+    if not sig_hash or not isinstance(sig_hash, str):
+        raise HTTPException(status_code=400, detail="sig_hash required")
+    status = payload.get("status")
+    note = payload.get("note")
+    tag = payload.get("tag")
+    if status == "clear":
+        removed = _ann.clear_annotation(sig_hash)
+        return {"sig_hash": sig_hash, "cleared": removed}
+    if status is None and note is None and tag is None:
+        raise HTTPException(
+            status_code=400,
+            detail="at least one of status / note / tag must be provided",
+        )
+    try:
+        out = _ann.annotate_cluster(sig_hash, status=status, note=note, tag=tag)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return out
+
+
+@app.get("/api/cluster-annotations")
+async def api_list_cluster_annotations():
+    return {"annotations": _ann.all_annotations()}
+
+
+@app.get("/api/cluster-assertions")
+async def api_list_cluster_assertions():
+    return {"assertions": _ass.list_assertions()}
 
 
 @app.get("/api/tags")

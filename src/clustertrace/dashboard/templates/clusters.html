@@ -54,12 +54,21 @@ let PAGE_SIZE = 30;
 let loaded = [];
 let summaryCache = null;
 
+const STATUSES = ["", "expected-failure", "wontfix", "priority", "acceptable"];
+
 async function loadSummary() {
   const r = await fetch('/api/failure-summary').then(r => r.json());
   summaryCache = r;
-  const overallPct = (r.overall_failure_rate * 100).toFixed(1);
+  const headlineFailed = r.traces_failed_after_annotations !== undefined
+    ? r.traces_failed_after_annotations : r.traces_failed;
+  const overallPct = ((r.overall_failure_rate_after_annotations !== undefined
+                       ? r.overall_failure_rate_after_annotations
+                       : r.overall_failure_rate) * 100).toFixed(1);
+  const expectedNote = r.expected_failure_traces
+    ? ` <span class="muted small">(+${r.expected_failure_traces} expected, hidden)</span>`
+    : '';
   document.getElementById('summary').innerHTML = `
-    <div><b>${r.traces_total}</b> traces · <b>${r.traces_failed}</b> failed (<b>${overallPct}%</b>)</div>
+    <div><b>${r.traces_total}</b> traces · <b>${headlineFailed}</b> failed (<b>${overallPct}%</b>)${expectedNote}</div>
     <div class="muted small">${r.n_clusters} distinct execution patterns</div>
   `;
   if (!r.top_failing_nodes.length) {
@@ -104,10 +113,32 @@ async function loadClusters(reset = true) {
     loaded = loaded.concat(r.clusters);
   }
   renderClusters();
-  // toggle load-more
   document.getElementById('load-more').style.display = r.clusters.length === PAGE_SIZE ? '' : 'none';
   document.getElementById('pagination-status').textContent =
     `showing ${loaded.length} of ${summaryCache ? summaryCache.n_clusters : '?'} clusters · mode=${mode}`;
+}
+
+function renderAnnotationBadge(c) {
+  const ann = c.annotation;
+  const status = ann && ann.status ? ann.status : '';
+  const note = ann && ann.note ? ann.note : '';
+  const label = status ? status : 'add annotation';
+  return `
+    <button class="annotation-badge ${status}" data-sig="${escapeHtml(c.sig_hash)}" title="${escapeHtml(note)}">
+      ${escapeHtml(label)}
+    </button>
+  `;
+}
+
+function renderJudgment(c) {
+  const j = c.latest_judgment;
+  if (!j) return '';
+  const total = j.pass_count + j.fail_count;
+  const pct = total ? Math.round((j.pass_count / total) * 100) : 0;
+  const cls = j.fail_count === 0 ? 'none' : (j.pass_count === 0 ? 'high' : 'mid');
+  return `<span class="judgment ${cls}" title="${escapeHtml(j.evaluator_name)}">
+    judge: ${j.pass_count}/${total} pass (${pct}%)
+  </span>`;
 }
 
 function renderClusters() {
@@ -121,14 +152,17 @@ function renderClusters() {
     const errPct = (c.error_rate * 100).toFixed(0);
     const errClass = c.error_rate >= 0.5 ? 'high' : c.error_rate > 0 ? 'mid' : 'none';
     const bar = (c.count / maxCount) * 100;
+    const expectedNote = c.expected_failure ? ' <span class="muted small">(expected)</span>' : '';
     return `
-      <div class="cluster-card ${errClass}">
+      <div class="cluster-card ${errClass}${c.expected_failure ? ' is-expected' : ''}">
         <div class="cluster-meta">
           <div class="cluster-counts">
             <span class="cluster-count">${c.count}×</span>
-            <span class="cluster-err ${errClass}">${c.errors}/${c.count} fail (${errPct}%)</span>
+            <span class="cluster-err ${errClass}">${c.errors}/${c.count} fail (${errPct}%)</span>${expectedNote}
             <span class="muted small">avg ${c.avg_duration_ms != null ? c.avg_duration_ms + ' ms' : '—'}</span>
             <a class="muted small" href="/trace/${c.representative_trace_id}">sample trace →</a>
+            ${renderJudgment(c)}
+            ${renderAnnotationBadge(c)}
           </div>
           <div class="cluster-bar"><div class="cluster-bar-fill" style="width:${bar}%"></div></div>
         </div>
@@ -136,6 +170,65 @@ function renderClusters() {
       </div>
     `;
   }).join('');
+  // Wire up annotation editors.
+  document.querySelectorAll('.annotation-badge').forEach(btn => {
+    btn.addEventListener('click', (e) => openAnnotationEditor(e.currentTarget));
+  });
+}
+
+function openAnnotationEditor(btn) {
+  const sig = btn.dataset.sig;
+  const cluster = loaded.find(c => c.sig_hash === sig);
+  const current = cluster && cluster.annotation || {};
+  const wrap = document.createElement('div');
+  wrap.className = 'annotation-editor';
+  wrap.innerHTML = `
+    <div class="annotation-editor-inner">
+      <h3>Annotate cluster ${escapeHtml(sig)}</h3>
+      <label>status:
+        <select class="input">
+          ${STATUSES.map(s => `<option value="${s}" ${s === (current.status || '') ? 'selected' : ''}>${s || '(none)'}</option>`).join('')}
+        </select>
+      </label>
+      <label>note: <textarea class="input" rows="3" maxlength="4096">${escapeHtml(current.note || '')}</textarea></label>
+      <label>add tag: <input class="input" type="text" placeholder="optional"></label>
+      <div class="row" style="gap:8px; margin-top:8px;">
+        <button class="btn btn-primary save">save</button>
+        <button class="btn clear">clear</button>
+        <button class="btn cancel">cancel</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.querySelector('.cancel').addEventListener('click', close);
+  wrap.addEventListener('click', e => { if (e.target === wrap) close(); });
+  wrap.querySelector('.clear').addEventListener('click', async () => {
+    await fetch('/api/cluster-annotations', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({sig_hash: sig, status: 'clear'}),
+    });
+    close();
+    await loadClusters(true);
+    await loadSummary();
+  });
+  wrap.querySelector('.save').addEventListener('click', async () => {
+    const status = wrap.querySelector('select').value || null;
+    const note = wrap.querySelector('textarea').value;
+    const tag = wrap.querySelector('input[type=text]').value || null;
+    const r = await fetch('/api/cluster-annotations', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({sig_hash: sig, status, note, tag}),
+    });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      alert('save failed: ' + (e.error || r.statusText));
+      return;
+    }
+    close();
+    await loadClusters(true);
+    await loadSummary();
+  });
 }
 
 document.getElementById('mode-input').addEventListener('change', () => loadClusters(true));
@@ -146,4 +239,43 @@ document.getElementById('load-more').addEventListener('click', () => loadCluster
   await loadClusters(true);
 })();
 </script>
+
+<style>
+.annotation-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border, #444);
+  background: transparent;
+  color: var(--text-muted, #888);
+  cursor: pointer;
+}
+.annotation-badge:hover { color: var(--text, #ddd); }
+.annotation-badge.expected-failure { background: #553311; color: #ffd5a0; }
+.annotation-badge.wontfix { background: #444; color: #ccc; }
+.annotation-badge.priority { background: #803020; color: #ffc0c0; }
+.annotation-badge.acceptable { background: #224422; color: #bce8bc; }
+.judgment {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border, #444);
+}
+.judgment.none { color: #bce8bc; border-color: #2b6e2b; }
+.judgment.mid { color: #ffc888; border-color: #aa7733; }
+.judgment.high { color: #ffb0b0; border-color: #993333; }
+.cluster-card.is-expected { opacity: 0.55; }
+.annotation-editor {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center; z-index: 999;
+}
+.annotation-editor-inner {
+  background: var(--bg-panel, #1b1d22);
+  padding: 18px; border-radius: 10px; min-width: 360px; max-width: 520px;
+  border: 1px solid var(--border, #333);
+}
+.annotation-editor-inner label { display: block; margin-top: 8px; }
+.annotation-editor-inner .input { width: 100%; box-sizing: border-box; margin-top: 2px; }
+</style>
 {% endblock %}

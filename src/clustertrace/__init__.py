@@ -14,6 +14,9 @@ __all__ = [
     "wrap_anthropic",
     "wrap_openai",
     "get_db_path",
+    "annotate_cluster",
+    "clear_cluster_annotation",
+    "get_cluster_annotation",
 ]
 __version__ = "0.9.0"
 
@@ -56,3 +59,30 @@ def wrap_openai(client):
     """
     from clustertrace.openai import wrap_openai as _wrap
     return _wrap(client)
+
+
+def annotate_cluster(
+    sig_hash: str,
+    *,
+    status: str | None = None,
+    note: str | None = None,
+    tag: str | None = None,
+):
+    """Mark a cluster with metadata that survives across runs.
+
+    See `clustertrace.annotations.annotate_cluster` for the full contract.
+    """
+    from clustertrace.annotations import annotate_cluster as _annotate
+    return _annotate(sig_hash, status=status, note=note, tag=tag)
+
+
+def clear_cluster_annotation(sig_hash: str) -> bool:
+    """Remove a cluster annotation entirely."""
+    from clustertrace.annotations import clear_annotation
+    return clear_annotation(sig_hash)
+
+
+def get_cluster_annotation(sig_hash: str):
+    """Read the current annotation for a cluster (or None)."""
+    from clustertrace.annotations import get_annotation
+    return get_annotation(sig_hash)

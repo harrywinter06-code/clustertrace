@@ -46,6 +46,22 @@ Status icons: `✓` ok / `✗` error / `◌` running. Error rows surface `error_
 - 15 new inspect tests (resolver paths, width invariants, --expand JSON dump, CLI surface)
 - Total suite 174 → 221 passing.
 
+## [0.8.0] — 2026-05-22
+
+### Added — Phase 3: eval loop
+
+Three surfaces that turn the cluster view into something you can write rules against, not just stare at.
+
+1. **LLM-as-judge on cluster representatives.** New `clustertrace.judge` module: `JudgeVerdict` dataclass, `no_exceptions_evaluator` (free, default), `llm_judge_evaluator(rubric, model=...)` (Anthropic SDK, defers API-key check to call time). `evaluate_cluster(sig_hash, evaluator, n_samples=3)` and `evaluate_all_clusters(...)` with deterministic sampling per-sig_hash so reports are reproducible. CLI: `clustertrace judge [--rubric <text>] [--samples 3] [--max-cost-usd 0.50] [--model claude-haiku-4-5-20251001]` emits a markdown report. Cost-cap enforced *before* any LLM calls; verified on demo data ($0.0001 cap aborts cleanly). Dashboard `/api/clusters` attaches `latest_judgment`.
+2. **Cluster annotations.** `clustertrace.annotate_cluster(sig_hash, status=..., note=..., tag=...)` with statuses `expected-failure` / `wontfix` / `priority` / `acceptable`; 4096-char note cap; append-deduped tags. Storage is keyed on `sig_hash` so annotations survive `clustertrace vacuum`. CLI: `clustertrace annotate <sig_hash> --status ... --note ... --tag ...` (`--status clear` removes). `/clusters` cards show an annotation badge with an inline editor (POST `/api/cluster-annotations`). `/api/failure-summary` drops `expected-failure` clusters from the headline count with a `+N expected, hidden` footnote.
+3. **Cluster pass/fail assertions + `clustertrace check` CLI.** Four rule kinds: `success_rate_above`, `avg_latency_below`, `avg_cost_below`, `no_new_traces`. `over_last` window in `traces` (count) or `seconds` (time). `clustertrace assert <sig_hash> --success-rate-above 0.9 --over-last 100` persists one rule per invocation; `clustertrace check` evaluates all of them and exits 0/1. `--format json` emits a CI-consumable payload (`{"passed": bool, "n_assertions": N, "n_failed": N, "results": [...]}`). By default, assertions on `expected-failure` clusters don't tank the exit code; `--include-expected-failures` overrides.
+
+### Schema
+Schema v4 migration adds `cluster_judgments`, `cluster_annotations`, `cluster_assertions`. Idempotent, runs once per DB.
+
+### Testing
+- 50 new tests across judge / annotations / assertions / check CLI. Total suite 174 → 224 passing.
+
 ## [0.7.1] — 2026-05-21
 
 ### Fixed (rigorous red-team pass found three real bugs)
