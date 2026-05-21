@@ -10,8 +10,9 @@
     <select id="mode-input" class="input">
       <option value="ordered">ordered (sequence + RLE)</option>
       <option value="set">set (reorder-insensitive)</option>
+      <option value="tree_edit">tree-edit (fuzzy, retries collapse)</option>
     </select>
-    <span class="muted small" id="mode-hint">Set mode collapses reorderings and retries — useful when ordered produces too many clusters.</span>
+    <span class="muted small" id="mode-hint">Set mode collapses reorderings and retries — useful when ordered produces too many clusters. Tree-edit groups traces whose token sequence differs by a small Levenshtein distance.</span>
   </div>
 
   <div class="cards" style="grid-template-columns: 2fr 1fr;">
