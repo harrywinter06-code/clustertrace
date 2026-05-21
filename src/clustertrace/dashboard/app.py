@@ -20,7 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from clustertrace import cluster, storage
+from clustertrace import cluster, drift, maintenance, storage
 
 _HERE = Path(__file__).parent
 _TEMPLATES = Jinja2Templates(directory=str(_HERE / "templates"))
@@ -79,6 +79,31 @@ async def metrics_page(request: Request):
 @app.get("/clusters", response_class=HTMLResponse)
 async def clusters_page(request: Request):
     return _TEMPLATES.TemplateResponse(request, "clusters.html", {})
+
+
+@app.get("/drift", response_class=HTMLResponse)
+async def drift_page(request: Request):
+    return _TEMPLATES.TemplateResponse(request, "drift.html", {})
+
+
+@app.get("/api/cluster-drift")
+async def api_cluster_drift(window: str = "24h", compare: str = "24h"):
+    """Cluster failure-rate change between two adjacent time windows.
+
+    `window` is the current window (anchored at now), `compare` is the
+    immediately-preceding window of the same or different length. Accepts
+    `24h`, `7d`, `30d`, `60s`, etc. — same syntax as `clustertrace cleanup`.
+    """
+    try:
+        window_s = maintenance.parse_duration(window)
+        compare_s = maintenance.parse_duration(compare)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    try:
+        cluster.backfill_signatures()
+    except Exception:
+        pass
+    return drift.compute_drift(window_seconds=window_s, compare_seconds=compare_s)
 
 
 @app.get("/api/clusters")
