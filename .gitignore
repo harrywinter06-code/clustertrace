@@ -26,5 +26,11 @@ Thumbs.db
 uv.lock
 demo-traces/
 
+# TS SDK workspace
+node_modules/
+clustertrace-ts/bun.lockb
+clustertrace-ts/bun.lock
+clustertrace-ts/.vitest-cache/
+
 # Internal strategy docs - not for public consumption
 _internal/
