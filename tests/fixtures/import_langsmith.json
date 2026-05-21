@@ -1,0 +1,43 @@
+{
+  "runs": [
+    {
+      "id": "ls-run-root-1",
+      "name": "research_agent",
+      "run_type": "chain",
+      "start_time": "2026-05-21T10:00:00.000Z",
+      "end_time": "2026-05-21T10:00:04.000Z",
+      "parent_run_id": null,
+      "tags": ["agent:research", "env:staging"],
+      "inputs": {"query": "summarize the doc"},
+      "outputs": {"answer": "..."}
+    },
+    {
+      "id": "ls-run-llm-1",
+      "name": "ChatAnthropic",
+      "run_type": "llm",
+      "start_time": "2026-05-21T10:00:00.200Z",
+      "end_time": "2026-05-21T10:00:02.700Z",
+      "parent_run_id": "ls-run-root-1",
+      "trace_id": "ls-run-root-1",
+      "prompt_tokens": 410,
+      "completion_tokens": 220,
+      "extra": {
+        "invocation_params": {"model": "claude-haiku-4-5-20251001", "stream": false},
+        "metadata": {"ls_model_name": "claude-haiku-4-5-20251001"}
+      },
+      "inputs": {"messages": [{"role": "user", "content": "go"}]},
+      "outputs": {"content": "ok"}
+    },
+    {
+      "id": "ls-run-tool-1",
+      "name": "doc_lookup",
+      "run_type": "tool",
+      "start_time": "2026-05-21T10:00:02.800Z",
+      "end_time": "2026-05-21T10:00:03.500Z",
+      "parent_run_id": "ls-run-root-1",
+      "trace_id": "ls-run-root-1",
+      "error": "DocNotFound: id=42",
+      "inputs": {"doc_id": 42}
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "traces": [
+    {
+      "id": "lf-trace-001",
+      "name": "research_agent",
+      "timestamp": "2026-05-21T10:00:00.000Z",
+      "endTime": "2026-05-21T10:00:02.500Z",
+      "tags": ["agent:research", "env:prod"],
+      "metadata": {"user_id": "u-42", "session": "s-7"},
+      "observations": [
+        {
+          "id": "lf-span-001",
+          "name": "anthropic.messages.create",
+          "type": "GENERATION",
+          "startTime": "2026-05-21T10:00:00.100Z",
+          "endTime": "2026-05-21T10:00:01.800Z",
+          "model": "claude-haiku-4-5-20251001",
+          "usage": {"input": 240, "output": 110},
+          "input": [{"role": "user", "content": "summarize this paper"}],
+          "output": "Here is a concise summary..."
+        },
+        {
+          "id": "lf-span-002",
+          "name": "fetch_paper",
+          "type": "SPAN",
+          "parentObservationId": "lf-span-001",
+          "startTime": "2026-05-21T10:00:01.900Z",
+          "endTime": "2026-05-21T10:00:02.400Z",
+          "input": {"url": "arxiv.org/abs/2401.00001"},
+          "output": {"bytes": 18234}
+        }
+      ]
+    },
+    {
+      "id": "lf-trace-002",
+      "name": "rag_agent",
+      "timestamp": "2026-05-21T10:01:00.000Z",
+      "endTime": "2026-05-21T10:01:01.200Z",
+      "tags": ["agent:rag"],
+      "observations": [
+        {
+          "id": "lf-span-101",
+          "name": "openai.chat.completions",
+          "type": "GENERATION",
+          "startTime": "2026-05-21T10:01:00.100Z",
+          "endTime": "2026-05-21T10:01:00.900Z",
+          "model": "gpt-4o-mini",
+          "usage": {"promptTokens": 80, "completionTokens": 30},
+          "level": "ERROR",
+          "statusMessage": "rate_limit_exceeded"
+        }
+      ]
+    }
+  ]
+}

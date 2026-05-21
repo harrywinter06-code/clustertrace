@@ -1,6 +1,6 @@
 [project]
 name = "clustertrace"
-version = "0.6.0"
+version = "0.7.0"
 description = "Local-first LLM agent observability — decorator + OpenTelemetry ingestion, traces grouped by execution pattern, cost per call, search, replay, shareable HTML snapshots."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -26,6 +26,7 @@ dependencies = [
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.40"]
 openai = ["openai>=1.30"]
+otel-import = ["opentelemetry-proto>=1.20"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",

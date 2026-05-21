@@ -4,6 +4,24 @@ All notable changes to clustertrace. Format roughly follows [Keep a Changelog](h
 
 > **Renamed from `agentlog` to `clustertrace` in v0.5.0** — PyPI's name-similarity check rejected `agentlog` as too close to the existing `agentlogger` package. The new name lands the differentiator (clustering of traces) more directly anyway.
 
+## [0.7.0] — 2026-05-21
+
+### Added — Phase 2: competitor ingest
+
+`clustertrace import --from <source>` accepts span/trace exports from the four common competitor formats. All importers are stdlib-only, idempotent, and prefix IDs with the source name so cross-tool UUID collisions are impossible.
+
+- **langfuse** — Langfuse JSON/JSONL exports. `observation.type=GENERATION` → `llm_call`, `=SPAN` → `function`. Usage block normalized onto `model`/`input_tokens`/`output_tokens`. Trace tags + metadata preserved as tags; `observation.level=ERROR` propagates to trace status.
+- **phoenix** — Arize Phoenix / OpenInference span exports (JSON envelope, JSONL, or bare span list). OpenInference `span.kind` maps to `llm_call`/`tool_call`/`function`; falls back to `llm.*`/`tool.*` attr sniffing. `llm.model_name`/`gen_ai.request.model` → `attrs[model]`. Surfaces `session.id`/`user.id` as trace tags. Two-pass finalize so child errors that arrive after the root flag the trace failed.
+- **langsmith** — LangSmith run exports (JSON envelope, JSONL, or single run). `run_type=llm`/`tool`/`chain`/`agent` mapping; model extracted from `extra.invocation_params`, `extra.metadata.ls_model_name`, or `serialized.name`. Top-level + nested `outputs.llm_output.token_usage` token counts. Orphaned child runs become their own self-rooted trace rather than being dropped.
+- **otel (OTLP/JSON)** — canonical OTLP/JSON envelope (`resourceSpans[].scopeSpans[].spans[]`) plus `{"spans":[...]}` and bare-span-dict shapes; both camelCase and snake_case keys. Flattens OTLP attribute encoding. Reuses the same `gen_ai.*`/`llm.*`/`tool.*` mapping table as the native `ClustertraceSpanExporter` so dashboard treatment matches. OTLP/protobuf reserved for the optional extra `clustertrace[otel-import]`.
+
+### CLI
+
+`clustertrace import --from <langfuse|phoenix|langsmith|otel|native> [--file PATH]` (stdin default). Native JSONL passthrough preserved as the default for existing `clustertrace export | clustertrace import` flows.
+
+### Testing
+- 15 new tests; total suite 105 → 120 passing.
+
 ## [0.6.0] — 2026-05-21
 
 ### Added — Phase 1: cluster depth
