@@ -25,3 +25,6 @@ env/
 Thumbs.db
 uv.lock
 demo-traces/
+
+# Internal strategy docs - not for public consumption
+_internal/
