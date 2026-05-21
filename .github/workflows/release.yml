@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag name (e.g. v0.5.0)"
+        required: true
 
 permissions:
   contents: write  # required to create releases
@@ -20,8 +25,13 @@ jobs:
         id: notes
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF#refs/tags/}"
+          if [ -n "${{ inputs.tag }}" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
           VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           # Pull the section between "## [<version>]" and the next "## [" header.
           NOTES=$(awk -v ver="$VERSION" '
             /^## \[/ {
@@ -48,8 +58,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
+          tag_name: ${{ steps.notes.outputs.tag || github.ref_name }}
+          name: ${{ steps.notes.outputs.tag || github.ref_name }}
           body: ${{ steps.notes.outputs.notes }}
           draft: false
           prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
