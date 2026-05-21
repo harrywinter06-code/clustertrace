@@ -140,11 +140,27 @@ class AgentlogSpanExporter:
         )
 
         # If this span has no parent, it's the root — finish the trace.
+        # Promote any child-span errors to the trace status so the clusters
+        # page treats OTel-ingested failures the same as native ones.
         if parent is None:
+            final_status = status
+            final_err_type = error_type
+            final_err_msg = error_message
+            if final_status == "ok":
+                with storage.connect() as conn:
+                    bad = conn.execute(
+                        "SELECT error_type, error_message FROM spans "
+                        "WHERE trace_id = ? AND status = 'error' LIMIT 1",
+                        (trace_id_hex,),
+                    ).fetchone()
+                if bad is not None:
+                    final_status = "error"
+                    final_err_type = bad["error_type"] or "ChildSpanError"
+                    final_err_msg = bad["error_message"] or "an inner span recorded an error"
             storage.finish_trace(
                 trace_id_hex,
                 ended_at or started_at,
-                status,
-                error_type=error_type,
-                error_message=error_message,
+                final_status,
+                error_type=final_err_type,
+                error_message=final_err_msg,
             )

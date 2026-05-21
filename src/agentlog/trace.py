@@ -47,7 +47,8 @@ def metric(name: str, value: float | int | bool) -> None:
     except Exception:
         pass
 
-F = TypeVar("F", bound=Callable[..., Any])
+_F = TypeVar("_F", bound=Callable[..., Any])
+F = _F  # re-exported alias for backward compatibility
 
 
 def _safe_repr_args(args: tuple, kwargs: dict[str, Any]) -> dict[str, Any]:

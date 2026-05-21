@@ -206,7 +206,7 @@ def failure_summary(limit_clusters: int = 20) -> dict:
             }
             for r in clusters_rows
         ],
-        key=lambda c: (-c["error_rate"], -c["count"]),
+        key=lambda c: (-float(c["error_rate"]), -int(c["count"])),
     )[:limit_clusters]
 
     return {

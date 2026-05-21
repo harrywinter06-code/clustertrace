@@ -124,6 +124,34 @@ def test_otel_error_status_recorded():
     assert sp["status"] == "error"
 
 
+def test_otel_child_error_promotes_to_trace_failure():
+    """When a child span errors but the root is OK, the trace must still be marked failed.
+
+    Otherwise the clusters page silently misses OTel-ingested failures.
+    """
+    parent_ctx = _Ctx(0x77777777777777777777777777777777, 0xaaaaaaaaaaaaaaaa)
+    # Root span ends OK
+    root = _FakeSpan(
+        name="root", trace_id=parent_ctx.trace_id, span_id=parent_ctx.span_id,
+        parent=None, start_time=1_000_000_000, end_time=3_000_000_000,
+        status_code_name="OK",
+    )
+    # Child span has an exception event and ERROR status
+    child = _FakeSpan(
+        name="child", trace_id=parent_ctx.trace_id, span_id=0xbbbbbbbbbbbbbbbb,
+        parent=parent_ctx, start_time=1_500_000_000, end_time=2_500_000_000,
+        status_code_name="ERROR",
+        events=[_Event(name="exception", attributes={"exception.type": "RuntimeError", "exception.message": "child broke"})],
+    )
+    # Insert child first, then root — OTel exporters can deliver out-of-order
+    AgentlogSpanExporter().export([child, root])
+    with storage.connect() as c:
+        t = c.execute("SELECT status, error_type, error_message FROM traces").fetchone()
+    assert t["status"] == "error", "OTel trace must be flagged failed when any child errored"
+    assert t["error_type"] == "RuntimeError"
+    assert "child broke" in (t["error_message"] or "")
+
+
 def test_otel_parent_chain():
     """Two spans with the same trace_id but different parent relationships."""
     parent_ctx = _Ctx(0x99999999999999999999999999999999, 0xaaaaaaaaaaaaaaaa)
