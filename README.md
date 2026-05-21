@@ -101,6 +101,11 @@ See [`examples/sample-trace.html`](examples/sample-trace.html) for a self-contai
 clustertrace demo                                      # one-step trial with bundled data
 clustertrace dashboard                                 # launch local server
 clustertrace stats                                     # one-screen DB summary
+clustertrace inspect --latest                          # rich terminal Gantt of last trace
+clustertrace inspect --failed                          # most-recent failed trace
+clustertrace inspect <trace_id> --expand <span_id>     # dump that span's I/O
+clustertrace mcp                                       # MCP server for AI editors (stdio)
+clustertrace mcp install --target claude-code          # wire into your editor
 clustertrace backfill-cost                             # compute $ for every LLM call
 clustertrace backfill-signatures                       # signatures for older traces
 clustertrace snapshot <trace_id> -o trace.html         # self-contained shareable HTML
@@ -110,6 +115,45 @@ clustertrace import < backup.jsonl                     # merge (skips existing I
 clustertrace replay <trace_id> --entry mod:fn          # re-run with captured args
 clustertrace db-path                                   # print SQLite path
 ```
+
+## Use with AI editors (MCP)
+
+`clustertrace mcp` runs a Model Context Protocol server that exposes your
+traces, clusters, and search to any MCP-capable AI editor — Claude Code,
+Cursor, Continue. Now "show me a failing trace of this pattern" or
+"diff this trace against a successful one" is a single AI assistant command.
+
+```bash
+pip install "clustertrace[mcp]"
+clustertrace mcp install --target claude-code   # or cursor, or continue
+# Restart your editor — clustertrace's tools are now available.
+```
+
+Six read-only tools are exposed:
+
+| Tool | What it does |
+|---|---|
+| `list_clusters` | distinct execution patterns with count + failure rate |
+| `get_trace` | full record (trace + spans + tags) for one trace id |
+| `search` | FTS5 search over span name + I/O + error messages |
+| `failure_summary` | aggregate failure-pattern view, optionally grouped by tag |
+| `recent_failed` | the N most recent traces with status=error |
+| `compare_traces` | structured diff (insert/delete/equal) of two traces' spans |
+
+Without `--target`, `clustertrace mcp install` prints the JSON snippet for
+you to paste into your editor's config manually:
+
+```json
+{
+  "clustertrace": {
+    "command": "clustertrace",
+    "args": ["mcp"]
+  }
+}
+```
+
+v0.9 ships read-only tools only — annotate/assert mutation tools land in v1.0
+after we see how the read-only surface gets used.
 
 ## Configuration
 

@@ -4,6 +4,48 @@ All notable changes to clustertrace. Format roughly follows [Keep a Changelog](h
 
 > **Renamed from `agentlog` to `clustertrace` in v0.5.0** — PyPI's name-similarity check rejected `agentlog` as too close to the existing `agentlogger` package. The new name lands the differentiator (clustering of traces) more directly anyway.
 
+## [0.9.0] — 2026-05-22
+
+### Added — Phase 4: IDE-native
+
+Two surfaces that bring clustertrace into the editor:
+
+#### `clustertrace mcp` — Model Context Protocol server
+
+Exposes clustertrace's data model as tools to any MCP-capable AI editor — Claude Code, Cursor, Continue. "Show me a failing trace of this pattern" or "diff this trace against a successful one" is now a single AI assistant command.
+
+Six read-only tools:
+
+- `list_clusters(limit, mode, threshold)` — distinct execution patterns with counts + failure rate
+- `get_trace(trace_id)` — full record (trace + spans + tags)
+- `search(query, limit)` — FTS5 search over span name + I/O + error messages
+- `failure_summary(group_by_tag)` — aggregate failure-pattern view
+- `recent_failed(limit)` — N most recent traces with status=error
+- `compare_traces(a_trace_id, b_trace_id)` — Wagner-Fischer edit script between two traces (most useful with `cluster_drift` output)
+
+`clustertrace mcp install --target {claude-code|cursor|continue}` merges into the editor's MCP config with a timestamped backup. Without `--target`, prints the JSON snippet to paste manually. Optional install: `pip install "clustertrace[mcp]"`. v0.9 ships stdio transport only; HTTP arrives when there's a concrete client that needs it. Read-only by design — mutation tools (annotate/assert) land in v1.0 after we see how the read-only surface gets used.
+
+#### `clustertrace inspect <trace_id>` — terminal TUI
+
+Renders one trace as a `rich`-formatted header + ASCII Gantt + nested span tree. Fully offline (pure SQLite reads). Good for SSH'd-in debugging where you can't pop open a browser.
+
+- `clustertrace inspect <id>` — by id
+- `--latest` — most recent trace
+- `--failed` — most recent failed trace
+- `--expand <span_id>` (repeatable) — dump that span's input/output/attrs
+- `--no-color` and `--width` for piping and snapshot tests
+
+Status icons: `✓` ok / `✗` error / `◌` running. Error rows surface `error_type: message` under the node. Renderer's column math is bounded — output never exceeds the requested width (verified at 80 and 200 cols).
+
+### Dependencies
+- `rich>=13` is now a hard dep (needed for `inspect`, small and useful)
+- `mcp>=1.0` is an optional extra (`clustertrace[mcp]`)
+
+### Testing
+- 32 new MCP tests (schema coverage, dispatch, every tool's shape, config-file merge + backup + idempotency, real-runtime server construction)
+- 15 new inspect tests (resolver paths, width invariants, --expand JSON dump, CLI surface)
+- Total suite 174 → 221 passing.
+
 ## [0.7.1] — 2026-05-21
 
 ### Fixed (rigorous red-team pass found three real bugs)
