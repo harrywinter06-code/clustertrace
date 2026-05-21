@@ -374,6 +374,64 @@ def mcp_install(target: str | None, server_name: str, dry_run: bool) -> None:
         click.echo(f"backup: {result.backup_path}")
 
 
+@main.command("inspect")
+@click.argument("trace_id", required=False)
+@click.option(
+    "--latest",
+    is_flag=True,
+    help="Pick the most recent trace if no id is given.",
+)
+@click.option(
+    "--failed",
+    is_flag=True,
+    help="Pick the most recent failed trace (overrides --latest).",
+)
+@click.option(
+    "--expand",
+    "expand",
+    multiple=True,
+    help="Span id(s) whose input/output JSON to show in full. Repeatable.",
+)
+@click.option(
+    "--width",
+    type=int,
+    default=None,
+    help="Output width (default: terminal width).",
+)
+@click.option(
+    "--no-color",
+    is_flag=True,
+    help="Disable ANSI colors (useful when piping).",
+)
+def inspect_cmd(
+    trace_id: str | None,
+    latest: bool,
+    failed: bool,
+    expand: tuple[str, ...],
+    width: int | None,
+    no_color: bool,
+) -> None:
+    """Render a trace as a rich Gantt + I/O tree in the terminal.
+
+    Works fully offline — pure-local SQLite reads. No network is touched.
+    """
+    from clustertrace import inspect as _inspect
+
+    try:
+        chosen_id = _inspect.resolve_trace_id(
+            trace_id=trace_id, latest=latest, failed=failed
+        )
+    except _inspect.InspectError as e:
+        raise click.ClickException(str(e)) from e
+
+    _inspect.render_to_console(
+        chosen_id,
+        expand_span_ids=set(expand),
+        width=width,
+        no_color=no_color,
+    )
+
+
 @main.command("stats")
 def stats() -> None:
     """Print a one-screen summary of the DB."""
