@@ -1,8 +1,8 @@
-"""agentlog — zero-config local-first instrumentation for LLM agents."""
+"""clustertrace — zero-config local-first instrumentation for LLM agents."""
 import atexit as _atexit
 
-from agentlog.storage import get_db_path
-from agentlog.trace import metric, span, tag, tool_call, trace
+from clustertrace.storage import get_db_path
+from clustertrace.trace import metric, span, tag, tool_call, trace
 
 __all__ = [
     "trace",
@@ -15,7 +15,7 @@ __all__ = [
     "wrap_openai",
     "get_db_path",
 ]
-__version__ = "0.4.2"
+__version__ = "0.5.0"
 
 
 def flush() -> int:
@@ -23,7 +23,7 @@ def flush() -> int:
 
     Synchronous, idempotent. Returns the number of traces finalized.
     """
-    from agentlog.maintenance import flush as _flush
+    from clustertrace.maintenance import flush as _flush
     return _flush()
 
 
@@ -45,7 +45,7 @@ def wrap_anthropic(client):
     Explicit wrap — does not monkey-patch globally. Pass the wrapped client
     where you would have passed the original.
     """
-    from agentlog.anthropic import wrap_anthropic as _wrap
+    from clustertrace.anthropic import wrap_anthropic as _wrap
     return _wrap(client)
 
 
@@ -54,5 +54,5 @@ def wrap_openai(client):
 
     Explicit wrap — does not monkey-patch globally.
     """
-    from agentlog.openai import wrap_openai as _wrap
+    from clustertrace.openai import wrap_openai as _wrap
     return _wrap(client)

@@ -3,8 +3,8 @@ name: publish to pypi
 # Triggers on any v* tag push. Uses PyPI's OIDC trusted-publisher flow —
 # no API tokens stored in the repo. Set up once at
 # https://pypi.org/manage/account/publishing/ with:
-#   owner=harrywinter06  repo=agentlog
-#   workflow=publish.yml  environment=pypi  project=agentlog
+#   owner=harrywinter06  repo=clustertrace
+#   workflow=publish.yml  environment=pypi  project=clustertrace
 
 on:
   push:
@@ -51,7 +51,7 @@ jobs:
     # publish without an approval step on protected releases.
     environment:
       name: pypi
-      url: https://pypi.org/project/agentlog/
+      url: https://pypi.org/project/clustertrace/
     permissions:
       id-token: write  # required for OIDC
     steps:

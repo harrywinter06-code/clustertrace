@@ -17,10 +17,10 @@ from dataclasses import dataclass
 
 from anthropic import Anthropic
 
-import agentlog
+import clustertrace
 
 MODEL = "claude-haiku-4-5-20251001"
-_client = agentlog.wrap_anthropic(Anthropic())
+_client = clustertrace.wrap_anthropic(Anthropic())
 
 
 class ToolFailure(Exception):
@@ -47,14 +47,14 @@ _PAPERS = {
 }
 
 
-@agentlog.trace
+@clustertrace.trace
 def search_papers(query: str) -> list[str]:
     ids = list(_PAPERS.keys())
     random.shuffle(ids)
     return ids[:3]
 
 
-@agentlog.trace
+@clustertrace.trace
 def fetch_paper(paper_id: str) -> str:
     if random.random() < 0.20:
         raise ToolFailure(f"fetch timed out for {paper_id}")
@@ -64,7 +64,7 @@ def fetch_paper(paper_id: str) -> str:
     return paper.body
 
 
-@agentlog.trace
+@clustertrace.trace
 def extract_claims(text: str) -> list[str]:
     resp = _client.messages.create(
         model=MODEL,
@@ -76,7 +76,7 @@ def extract_claims(text: str) -> list[str]:
     return [c.strip("-• ").strip() for c in raw.splitlines() if c.strip()][:4]
 
 
-@agentlog.trace
+@clustertrace.trace
 def verify_claim(claim: str) -> dict:
     if random.random() < 0.25:
         raise ToolFailure(f"verifier inconclusive for: {claim[:40]}")
@@ -90,7 +90,7 @@ def verify_claim(claim: str) -> dict:
     return {"claim": claim, "verdict": verdict}
 
 
-@agentlog.trace
+@clustertrace.trace
 def summarize_research(verdicts: list[dict]) -> str:
     bullet = "\n".join(f"- {v['claim']} → {v.get('verdict','?')}" for v in verdicts)
     resp = _client.messages.create(
@@ -102,9 +102,9 @@ def summarize_research(verdicts: list[dict]) -> str:
     return (resp.content[0].text if resp.content else "").strip()
 
 
-@agentlog.trace(tags={"agent": "research"})
+@clustertrace.trace(tags={"agent": "research"})
 def research_agent(query: str) -> str:
-    agentlog.tag("query", query[:40])
+    clustertrace.tag("query", query[:40])
     paper_ids = search_papers(query)
     all_claims: list[str] = []
     for pid in paper_ids:
@@ -140,13 +140,13 @@ _RAG_CORPUS = [
 ]
 
 
-@agentlog.trace
+@clustertrace.trace
 def retrieve(query: str) -> list[str]:
     """Pretend retrieval: returns 3 random docs (some relevant, some not)."""
     return random.sample(_RAG_CORPUS, 3)
 
 
-@agentlog.trace
+@clustertrace.trace
 def rerank(query: str, docs: list[str]) -> list[str]:
     """Asks Haiku to rerank; flaky when retrieved docs are clearly off-topic."""
     relevant = sum(1 for d in docs if any(w in d.lower() for w in query.lower().split() if len(w) > 3))
@@ -162,7 +162,7 @@ def rerank(query: str, docs: list[str]) -> list[str]:
     return [line.strip("-• ").strip() for line in raw.splitlines() if line.strip()][:2]
 
 
-@agentlog.trace
+@clustertrace.trace
 def answer(query: str, docs: list[str]) -> str:
     resp = _client.messages.create(
         model=MODEL,
@@ -173,9 +173,9 @@ def answer(query: str, docs: list[str]) -> str:
     return (resp.content[0].text if resp.content else "").strip()
 
 
-@agentlog.trace(tags={"agent": "rag"})
+@clustertrace.trace(tags={"agent": "rag"})
 def rag_agent(query: str) -> str:
-    agentlog.tag("query", query[:40])
+    clustertrace.tag("query", query[:40])
     docs = retrieve(query)
     ranked = rerank(query, docs)
     return answer(query, ranked)
@@ -185,7 +185,7 @@ def rag_agent(query: str) -> str:
 # 3. tool_use_agent — planner + fixed tool calls; failures cluster on calc
 # ---------------------------------------------------------------------------
 
-@agentlog.trace
+@clustertrace.trace
 def plan(task: str) -> list[str]:
     resp = _client.messages.create(
         model=MODEL,
@@ -197,14 +197,14 @@ def plan(task: str) -> list[str]:
     return [s.strip() for s in raw.splitlines() if s.strip()][:3]
 
 
-@agentlog.trace
+@clustertrace.trace
 def web_search(query: str) -> dict:
     if random.random() < 0.10:
         raise ToolFailure("search rate limit")
     return {"hits": ["result-a", "result-b"]}
 
 
-@agentlog.trace
+@clustertrace.trace
 def calculator(expression: str) -> float:
     """Evaluate a simple arithmetic expression; flaky on malformed input."""
     # ~30% of the time we get arg-shape errors (LLM hands us a non-expression)
@@ -216,12 +216,12 @@ def calculator(expression: str) -> float:
         raise ToolFailure(f"calc error: {e}") from e
 
 
-@agentlog.trace
+@clustertrace.trace
 def lookup(key: str) -> dict:
     return {"key": key, "value": random.choice(["alpha", "beta", "gamma"])}
 
 
-@agentlog.trace
+@clustertrace.trace
 def synthesize(task: str, observations: list) -> str:
     resp = _client.messages.create(
         model=MODEL,
@@ -232,9 +232,9 @@ def synthesize(task: str, observations: list) -> str:
     return (resp.content[0].text if resp.content else "").strip()
 
 
-@agentlog.trace(tags={"agent": "tool_use"})
+@clustertrace.trace(tags={"agent": "tool_use"})
 def tool_use_agent(task: str) -> str:
-    agentlog.tag("task", task[:40])
+    clustertrace.tag("task", task[:40])
     plan(task)
     # Fixed call order: web_search → calculator → lookup
     obs: list = []

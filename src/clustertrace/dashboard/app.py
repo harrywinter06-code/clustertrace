@@ -1,4 +1,4 @@
-"""FastAPI dashboard for agentlog.
+"""FastAPI dashboard for clustertrace.
 
 Routes:
   GET /                        recent traces list
@@ -20,13 +20,13 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from agentlog import cluster, storage
+from clustertrace import cluster, storage
 
 _HERE = Path(__file__).parent
 _TEMPLATES = Jinja2Templates(directory=str(_HERE / "templates"))
 _STATIC_DIR = _HERE / "static"
 
-app = FastAPI(title="agentlog", docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title="clustertrace", docs_url=None, redoc_url=None, openapi_url=None)
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 

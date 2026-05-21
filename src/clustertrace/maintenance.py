@@ -1,6 +1,6 @@
 """Cleanup, retention, and graceful shutdown helpers.
 
-agentlog writes synchronously, so there's no buffer to flush in the
+clustertrace writes synchronously, so there's no buffer to flush in the
 network-IO sense. What there *is*: traces that started but didn't finish
 (process killed, crashed, debugger detached) and stay in `status='running'`
 forever. These helpers finalize them.
@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 import time
 
-from agentlog import storage
+from clustertrace import storage
 
 _DURATION_RE = re.compile(r"^(\d+)\s*([smhdw])$")
 

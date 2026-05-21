@@ -9,8 +9,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from agentlog import storage
-from agentlog._ctx import current_span_id, current_trace_id, new_id
+from clustertrace import storage
+from clustertrace._ctx import current_span_id, current_trace_id, new_id
 
 
 def _record_messages_span(model: str, messages: Any, kwargs: dict[str, Any]) -> tuple[str, str, float, bool, Any]:

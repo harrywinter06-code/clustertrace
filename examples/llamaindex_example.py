@@ -1,16 +1,16 @@
-"""LlamaIndex → agentlog via OpenTelemetry.
+"""LlamaIndex → clustertrace via OpenTelemetry.
 
 LlamaIndex's instrumentation module emits OTel spans for queries, retrievers,
-and LLM calls. The agentlog SpanExporter ingests them so the same clusters /
+and LLM calls. The clustertrace SpanExporter ingests them so the same clusters /
 cost / search views work for LlamaIndex apps.
 
 Setup:
-    pip install agentlog llama-index llama-index-llms-anthropic \
+    pip install clustertrace llama-index llama-index-llms-anthropic \
         opentelemetry-sdk
 
 Run:
     ANTHROPIC_API_KEY=sk-ant-... python examples/llamaindex_example.py
-    agentlog dashboard
+    clustertrace dashboard
 """
 from __future__ import annotations
 
@@ -18,10 +18,10 @@ from opentelemetry import trace as otel_trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-from agentlog.otel import AgentlogSpanExporter
+from clustertrace.otel import ClustertraceSpanExporter
 
 provider = TracerProvider()
-provider.add_span_processor(BatchSpanProcessor(AgentlogSpanExporter()))
+provider.add_span_processor(BatchSpanProcessor(ClustertraceSpanExporter()))
 otel_trace.set_tracer_provider(provider)
 
 

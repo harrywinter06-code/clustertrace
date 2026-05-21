@@ -15,7 +15,7 @@ import hashlib
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from agentlog import storage
+from clustertrace import storage
 
 _LLM_PREFIXES = ("anthropic.messages.create:", "openai.chat.completions.create:")
 

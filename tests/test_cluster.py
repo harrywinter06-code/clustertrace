@@ -1,8 +1,8 @@
 """Clustering, signature computation, failure-prefix mining."""
 import pytest
 
-import agentlog
-from agentlog import cluster, storage
+import clustertrace
+from clustertrace import cluster, storage
 
 
 def test_signature_collapses_consecutive_duplicates():
@@ -51,15 +51,15 @@ def test_signature_normalizes_llm_call_names():
 
 
 def test_clusters_grouped_by_identical_signature():
-    @agentlog.trace
+    @clustertrace.trace
     def path_a():
-        with agentlog.span("step1"): pass
-        with agentlog.span("step2"): pass
+        with clustertrace.span("step1"): pass
+        with clustertrace.span("step2"): pass
 
-    @agentlog.trace
+    @clustertrace.trace
     def path_b():
-        with agentlog.span("step1"): pass
-        agentlog.tool_call("other", args={}, result={})
+        with clustertrace.span("step1"): pass
+        clustertrace.tool_call("other", args={}, result={})
 
     for _ in range(3): path_a()
     for _ in range(2): path_b()
@@ -86,9 +86,9 @@ def test_failure_prefix_empty_when_disjoint():
 
 def test_backfill_fills_missing_signatures():
     """Old traces with NULL signatures get backfilled."""
-    @agentlog.trace
+    @clustertrace.trace
     def go():
-        with agentlog.span("s"): pass
+        with clustertrace.span("s"): pass
     go()
     with storage.connect() as c:
         c.execute("UPDATE traces SET signature = NULL")
@@ -101,13 +101,13 @@ def test_backfill_fills_missing_signatures():
 
 def test_failure_summary_aggregates_correctly():
     """End-to-end: seed mixed traces and check the summary numbers."""
-    @agentlog.trace
+    @clustertrace.trace
     def ok_path():
-        with agentlog.span("a"): pass
+        with clustertrace.span("a"): pass
 
-    @agentlog.trace
+    @clustertrace.trace
     def err_path():
-        with agentlog.span("a"): pass
+        with clustertrace.span("a"): pass
         raise RuntimeError("boom")
 
     for _ in range(4): ok_path()

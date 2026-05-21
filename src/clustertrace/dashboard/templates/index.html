@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Recent traces — agentlog{% endblock %}
+{% block title %}Recent traces — clustertrace{% endblock %}
 {% block content %}
 <section>
   <div class="row between">
@@ -65,14 +65,14 @@ async function loadTraces() {
           <div class="empty-grid">
             <div class="empty-card">
               <h4>Try the bundled demo</h4>
-              <pre>agentlog demo</pre>
+              <pre>clustertrace demo</pre>
               <p class="muted small">60 pre-recorded traces, no API key needed.</p>
             </div>
             <div class="empty-card">
               <h4>Instrument your own code</h4>
-              <pre>import agentlog
+              <pre>import clustertrace
 
-@agentlog.trace
+@clustertrace.trace
 def my_agent(q): ...
 
 my_agent("hello")</pre>
@@ -80,10 +80,10 @@ my_agent("hello")</pre>
             </div>
             <div class="empty-card">
               <h4>Or pipe in OpenTelemetry</h4>
-              <pre>from agentlog.otel import \
-  AgentlogSpanExporter
+              <pre>from clustertrace.otel import \
+  ClustertraceSpanExporter
 provider.add_span_processor(
-  BatchSpanProcessor(AgentlogSpanExporter()))</pre>
+  BatchSpanProcessor(ClustertraceSpanExporter()))</pre>
               <p class="muted small">LangChain, LlamaIndex, Bedrock — anything with OTel.</p>
             </div>
           </div>

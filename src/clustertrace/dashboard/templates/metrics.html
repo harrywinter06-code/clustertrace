@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Metrics — agentlog{% endblock %}
+{% block title %}Metrics — clustertrace{% endblock %}
 {% block content %}
 <section>
   <h1>Metrics</h1>
-  <p class="muted">Pass rates, eval scores, latency targets — anything you've attached via <code>agentlog.metric(name, value)</code> within a trace. Aggregates over time.</p>
+  <p class="muted">Pass rates, eval scores, latency targets — anything you've attached via <code>clustertrace.metric(name, value)</code> within a trace. Aggregates over time.</p>
   <div id="aggregate" class="muted">loading…</div>
   <div id="charts"></div>
 </section>
@@ -17,7 +17,7 @@ async function load() {
   const charts = document.getElementById('charts');
 
   if (!data.aggregate.length) {
-    agg.innerHTML = '<p class="muted">No metrics yet. Call <code>agentlog.metric("score", 0.85)</code> inside a traced function.</p>';
+    agg.innerHTML = '<p class="muted">No metrics yet. Call <code>clustertrace.metric("score", 0.85)</code> inside a traced function.</p>';
     return;
   }
 

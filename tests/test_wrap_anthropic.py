@@ -1,8 +1,8 @@
 """Verify wrap_anthropic logs calls and propagates exceptions, using a fake client."""
 import pytest
 
-import agentlog
-from agentlog import storage
+import clustertrace
+from clustertrace import storage
 
 
 class FakeUsage:
@@ -45,7 +45,7 @@ class FakeClient:
 
 
 def test_wrap_logs_successful_call():
-    wrapped = agentlog.wrap_anthropic(FakeClient())
+    wrapped = clustertrace.wrap_anthropic(FakeClient())
     resp = wrapped.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=100,
@@ -65,7 +65,7 @@ def test_wrap_logs_successful_call():
 
 
 def test_wrap_propagates_and_logs_exception():
-    wrapped = agentlog.wrap_anthropic(FakeClient())
+    wrapped = clustertrace.wrap_anthropic(FakeClient())
     with pytest.raises(RuntimeError):
         wrapped.messages.create(model="raise", max_tokens=10, messages=[])
 
@@ -83,15 +83,15 @@ def test_wrap_does_not_break_unrelated_attrs():
     class WithExtras(FakeClient):
         custom = "yes"
 
-    wrapped = agentlog.wrap_anthropic(WithExtras())
+    wrapped = clustertrace.wrap_anthropic(WithExtras())
     assert wrapped.custom == "yes"
 
 
 def test_wrap_under_trace_creates_nested_span():
     """When called inside a @trace function, the llm_call span nests under it."""
-    wrapped = agentlog.wrap_anthropic(FakeClient())
+    wrapped = clustertrace.wrap_anthropic(FakeClient())
 
-    @agentlog.trace
+    @clustertrace.trace
     def calls():
         wrapped.messages.create(
             model="claude-haiku-4-5-20251001", max_tokens=10, messages=[]

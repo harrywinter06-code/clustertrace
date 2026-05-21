@@ -40,8 +40,8 @@ jobs:
             echo ""
             echo "---"
             echo ""
-            echo "Install: \`pip install agentlog==$VERSION\`"
-            echo "Try: \`agentlog demo\`"
+            echo "Install: \`pip install clustertrace==$VERSION\`"
+            echo "Try: \`clustertrace demo\`"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 

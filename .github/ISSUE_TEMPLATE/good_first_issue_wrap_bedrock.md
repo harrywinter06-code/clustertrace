@@ -8,7 +8,7 @@ assignees: ''
 
 ## What
 
-A native `agentlog.wrap_bedrock(client)` that wraps `boto3.client("bedrock-runtime")` and logs `invoke_model` / `invoke_model_with_response_stream` calls.
+A native `clustertrace.wrap_bedrock(client)` that wraps `boto3.client("bedrock-runtime")` and logs `invoke_model` / `invoke_model_with_response_stream` calls.
 
 ## Why
 
@@ -16,10 +16,10 @@ Today, Bedrock works through `wrap_anthropic(AnthropicBedrock())` — but a lot 
 
 ## Pointers
 
-- Mirror the pattern in [`src/agentlog/anthropic.py`](../../src/agentlog/anthropic.py): `_record_*_span`, `_finish`, `_WrappedClient`.
+- Mirror the pattern in [`src/clustertrace/anthropic.py`](../../src/clustertrace/anthropic.py): `_record_*_span`, `_finish`, `_WrappedClient`.
 - Parse Bedrock's `body` (it's a JSON-encoded string) to extract the model, input, output, and usage.
-- Add `boto3` as an optional install extra: `agentlog[bedrock]`.
-- Add a price entry in [`src/agentlog/cost.py`](../../src/agentlog/cost.py) for the Bedrock model IDs you support (`anthropic.claude-*-v2`, `meta.llama3-*`, etc.).
+- Add `boto3` as an optional install extra: `clustertrace[bedrock]`.
+- Add a price entry in [`src/clustertrace/cost.py`](../../src/clustertrace/cost.py) for the Bedrock model IDs you support (`anthropic.claude-*-v2`, `meta.llama3-*`, etc.).
 - Write `tests/test_wrap_bedrock.py` against a `FakeBedrockClient` (no AWS credentials needed).
 
 [CONTRIBUTING.md](../../CONTRIBUTING.md) has the step-by-step recipe.

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Clusters — agentlog{% endblock %}
+{% block title %}Clusters — clustertrace{% endblock %}
 {% block content %}
 <section>
   <h1>Execution clusters</h1>
@@ -112,7 +112,7 @@ async function loadClusters(reset = true) {
 function renderClusters() {
   const el = document.getElementById('clusters-list');
   if (!loaded.length) {
-    el.innerHTML = '<p class="muted">No clusters yet. Run <code>agentlog demo</code> or instrument your code.</p>';
+    el.innerHTML = '<p class="muted">No clusters yet. Run <code>clustertrace demo</code> or instrument your code.</p>';
     return;
   }
   const maxCount = Math.max(...loaded.map(c => c.count));

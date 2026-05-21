@@ -1,4 +1,4 @@
-"""SQLite storage for agentlog traces. Local-first — no network I/O."""
+"""SQLite storage for clustertrace traces. Local-first — no network I/O."""
 from __future__ import annotations
 
 import json
@@ -133,11 +133,11 @@ _local = threading.local()
 
 
 def get_db_path() -> Path:
-    """Return the SQLite path. Honors $AGENTLOG_DB, defaults to ~/.agentlog/traces.db."""
-    override = os.environ.get("AGENTLOG_DB")
+    """Return the SQLite path. Honors $CLUSTERTRACE_DB, defaults to ~/.clustertrace/traces.db."""
+    override = os.environ.get("CLUSTERTRACE_DB")
     if override:
         return Path(override).expanduser()
-    return Path.home() / ".agentlog" / "traces.db"
+    return Path.home() / ".clustertrace" / "traces.db"
 
 
 def _ensure_initialized(path: Path) -> None:
@@ -188,7 +188,7 @@ def connect(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
 
     The connection is shared per (thread, db-path) and not closed on exit —
     closing per-write was the dominant cost under burst load. Tests that
-    swap `$AGENTLOG_DB` call `reset_initialized_cache()`, which also closes
+    swap `$CLUSTERTRACE_DB` call `reset_initialized_cache()`, which also closes
     any pooled connections so the next `connect()` opens against the new path.
     """
     path = db_path or get_db_path()
@@ -199,7 +199,7 @@ def connect(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
 def reset_initialized_cache() -> None:
     """Test helper: clear init cache + close pooled connections.
 
-    Must be called when switching `$AGENTLOG_DB` between tests, otherwise
+    Must be called when switching `$CLUSTERTRACE_DB` between tests, otherwise
     the pooled connection points at the old path and writes go nowhere.
     """
     with _lock:
@@ -215,8 +215,8 @@ def reset_initialized_cache() -> None:
 
 
 def _max_payload_bytes() -> int:
-    """Per-field cap on serialized JSON. Override via $AGENTLOG_MAX_PAYLOAD_BYTES."""
-    raw = os.environ.get("AGENTLOG_MAX_PAYLOAD_BYTES")
+    """Per-field cap on serialized JSON. Override via $CLUSTERTRACE_MAX_PAYLOAD_BYTES."""
+    raw = os.environ.get("CLUSTERTRACE_MAX_PAYLOAD_BYTES")
     if not raw:
         return 32_768  # 32 KB default — enough for normal LLM I/O, caps the pathological cases
     try:
@@ -285,7 +285,7 @@ def finish_trace(
     # Compute the structural signature for clustering. Lazy import to avoid
     # a static cycle between storage <-> cluster. Best-effort; never raise.
     try:
-        from agentlog import cluster
+        from clustertrace import cluster
 
         cluster.compute_and_store_signature(trace_id)
     except Exception:
@@ -391,7 +391,7 @@ def finish_span(
     auto_cost: float | None = None
     if attrs:
         try:
-            from agentlog import cost as _cost
+            from clustertrace import cost as _cost
 
             auto_cost = _cost.estimate_span_cost(attrs)
         except Exception:

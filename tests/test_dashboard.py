@@ -1,20 +1,20 @@
 """Smoke-test the dashboard's JSON endpoints against a populated DB."""
 from fastapi.testclient import TestClient
 
-import agentlog
-from agentlog.dashboard.app import app
+import clustertrace
+from clustertrace.dashboard.app import app
 
 
 def _seed():
-    @agentlog.trace
+    @clustertrace.trace
     def ok_path():
-        with agentlog.span("step_a"):
-            agentlog.tool_call("lookup", args={"q": "x"}, result={"hits": 3})
+        with clustertrace.span("step_a"):
+            clustertrace.tool_call("lookup", args={"q": "x"}, result={"hits": 3})
         return "done"
 
-    @agentlog.trace
+    @clustertrace.trace
     def failing_path():
-        with agentlog.span("step_a"):
+        with clustertrace.span("step_a"):
             raise RuntimeError("kaboom")
 
     ok_path()
@@ -77,7 +77,7 @@ def test_index_renders():
     client = TestClient(app)
     r = client.get("/")
     assert r.status_code == 200
-    assert "agentlog" in r.text.lower()
+    assert "clustertrace" in r.text.lower()
 
 
 def test_unknown_trace_returns_404():
@@ -87,14 +87,14 @@ def test_unknown_trace_returns_404():
 
 
 def test_clusters_endpoint_groups_traces():
-    @agentlog.trace
+    @clustertrace.trace
     def path_a():
-        with agentlog.span("step1"): pass
-        with agentlog.span("step2"): pass
+        with clustertrace.span("step1"): pass
+        with clustertrace.span("step2"): pass
 
-    @agentlog.trace
+    @clustertrace.trace
     def path_b():
-        with agentlog.span("step1"): pass
+        with clustertrace.span("step1"): pass
 
     for _ in range(2): path_a()
     for _ in range(3): path_b()
@@ -108,9 +108,9 @@ def test_clusters_endpoint_groups_traces():
 
 
 def test_failure_summary_endpoint():
-    @agentlog.trace
+    @clustertrace.trace
     def fails():
-        with agentlog.span("a"): pass
+        with clustertrace.span("a"): pass
         raise ValueError("nope")
 
     try: fails()
@@ -124,10 +124,10 @@ def test_failure_summary_endpoint():
 
 
 def test_traces_filter_by_status():
-    @agentlog.trace
+    @clustertrace.trace
     def good(): pass
 
-    @agentlog.trace
+    @clustertrace.trace
     def bad(): raise RuntimeError("x")
 
     good()
@@ -141,10 +141,10 @@ def test_traces_filter_by_status():
 
 
 def test_traces_filter_by_tag():
-    @agentlog.trace(tags={"agent": "rag"})
+    @clustertrace.trace(tags={"agent": "rag"})
     def a(): pass
 
-    @agentlog.trace(tags={"agent": "tool_use"})
+    @clustertrace.trace(tags={"agent": "tool_use"})
     def b(): pass
 
     a(); a(); b()
@@ -156,7 +156,7 @@ def test_traces_filter_by_tag():
 
 
 def test_tags_endpoint_lists_known_keys():
-    @agentlog.trace(tags={"agent": "rag", "v": "1"})
+    @clustertrace.trace(tags={"agent": "rag", "v": "1"})
     def a(): pass
     a(); a()
     client = TestClient(app)

@@ -8,7 +8,7 @@ assignees: ''
 
 ## What
 
-`agentlog.wrap_gemini(client)` wrapping the `google.genai.Client.models.generate_content` (and the streaming + async variants).
+`clustertrace.wrap_gemini(client)` wrapping the `google.genai.Client.models.generate_content` (and the streaming + async variants).
 
 ## Why
 
@@ -19,10 +19,10 @@ Gemini works through OpenTelemetry today, but a native wrapper:
 
 ## Pointers
 
-- Mirror [`src/agentlog/openai.py`](../../src/agentlog/openai.py).
+- Mirror [`src/clustertrace/openai.py`](../../src/clustertrace/openai.py).
 - Watch out for sync vs async (`Client` vs `AsyncClient`).
-- Add `google-genai` as an extra: `agentlog[gemini]`.
-- Add prices to [`src/agentlog/cost.py`](../../src/agentlog/cost.py) — `gemini-2.5-pro`, `gemini-2.5-flash`, etc.
+- Add `google-genai` as an extra: `clustertrace[gemini]`.
+- Add prices to [`src/clustertrace/cost.py`](../../src/clustertrace/cost.py) — `gemini-2.5-pro`, `gemini-2.5-flash`, etc.
 - Tests in `tests/test_wrap_gemini.py` against a `FakeGeminiClient`.
 
 [CONTRIBUTING.md](../../CONTRIBUTING.md) has the recipe.

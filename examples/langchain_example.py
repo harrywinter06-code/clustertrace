@@ -1,17 +1,17 @@
-"""LangChain → agentlog in 5 lines via OpenTelemetry.
+"""LangChain → clustertrace in 5 lines via OpenTelemetry.
 
 LangChain emits OpenTelemetry spans for chains, agents, and LLM calls. The
-agentlog SpanExporter ingests them into the same SQLite store as your
-@agentlog.trace functions, so the clusters page, cost view, and search
+clustertrace SpanExporter ingests them into the same SQLite store as your
+@clustertrace.trace functions, so the clusters page, cost view, and search
 work across both native and LangChain-instrumented code.
 
 Setup:
-    pip install agentlog langchain langchain-anthropic langchain-community \
+    pip install clustertrace langchain langchain-anthropic langchain-community \
         opentelemetry-sdk opentelemetry-instrumentation-langchain
 
 Run:
     ANTHROPIC_API_KEY=sk-ant-... python examples/langchain_example.py
-    agentlog dashboard
+    clustertrace dashboard
 """
 from __future__ import annotations
 
@@ -19,11 +19,11 @@ from opentelemetry import trace as otel_trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-from agentlog.otel import AgentlogSpanExporter
+from clustertrace.otel import ClustertraceSpanExporter
 
-# The five lines that route everything LangChain emits into agentlog.
+# The five lines that route everything LangChain emits into clustertrace.
 provider = TracerProvider()
-provider.add_span_processor(BatchSpanProcessor(AgentlogSpanExporter()))
+provider.add_span_processor(BatchSpanProcessor(ClustertraceSpanExporter()))
 otel_trace.set_tracer_provider(provider)
 
 # Optional: turn on the OTel auto-instrumentor for LangChain so chain steps,

@@ -6,7 +6,7 @@ body:
     id: problem
     attributes:
       label: What problem are you trying to solve?
-      description: The concrete situation that made you wish agentlog did this. Skip "wouldn't it be cool if…".
+      description: The concrete situation that made you wish clustertrace did this. Skip "wouldn't it be cool if…".
     validations:
       required: true
   - type: textarea

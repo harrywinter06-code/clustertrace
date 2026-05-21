@@ -1,7 +1,7 @@
 """Cost estimation for LLM calls.
 
 Pricing is per million tokens. Sourced from each provider's public pricing
-page as of 2026-05; users can override via $AGENTLOG_PRICING_JSON or extend
+page as of 2026-05; users can override via $CLUSTERTRACE_PRICING_JSON or extend
 the table at runtime.
 
 Cost is computed lazily when:
@@ -41,8 +41,8 @@ PRICING: dict[str, tuple[float, float]] = {
 
 
 def _load_overrides() -> None:
-    """Allow $AGENTLOG_PRICING_JSON='{"some-model": [2.0, 10.0]}' to override."""
-    raw = os.environ.get("AGENTLOG_PRICING_JSON")
+    """Allow $CLUSTERTRACE_PRICING_JSON='{"some-model": [2.0, 10.0]}' to override."""
+    raw = os.environ.get("CLUSTERTRACE_PRICING_JSON")
     if not raw:
         return
     try:
@@ -102,7 +102,7 @@ def backfill(limit: int | None = None) -> tuple[int, float]:
 
     Returns (n_spans_priced, total_cost).
     """
-    from agentlog import storage
+    from clustertrace import storage
 
     total = 0.0
     n_spans = 0

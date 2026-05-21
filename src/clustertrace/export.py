@@ -11,7 +11,7 @@ import sys
 from collections.abc import Iterable
 from typing import IO
 
-from agentlog import storage
+from clustertrace import storage
 
 EXPORT_FORMAT_VERSION = 1
 
@@ -48,14 +48,14 @@ def export_trace(trace_id: str, out: IO[str] = sys.stdout) -> int:
 
 
 def _write_header(out: IO[str]) -> None:
-    import agentlog as _al
+    import clustertrace as _al
 
     with storage.connect() as conn:
         sv = conn.execute("SELECT value FROM schema_meta WHERE key = 'version'").fetchone()
     header = {
-        "_agentlog_header": True,
+        "_clustertrace_header": True,
         "export_format_version": EXPORT_FORMAT_VERSION,
-        "agentlog_version": getattr(_al, "__version__", "?"),
+        "clustertrace_version": getattr(_al, "__version__", "?"),
         "schema_version": int(sv[0]) if sv else None,
     }
     out.write(json.dumps(header) + "\n")
@@ -78,7 +78,7 @@ def export_all(out: IO[str] = sys.stdout, limit: int | None = None, header: bool
 def import_lines(lines: Iterable[str]) -> tuple[int, int]:
     """Read JSONL and merge each trace into the current DB.
 
-    A leading `_agentlog_header` line (if present) is parsed and validated.
+    A leading `_clustertrace_header` line (if present) is parsed and validated.
     Returns (imported, skipped). Existing trace ids are skipped.
     Header line and unrecognized lines count as skipped.
     """
@@ -94,13 +94,13 @@ def import_lines(lines: Iterable[str]) -> tuple[int, int]:
             skipped += 1
             continue
         # Skip header lines from versioned exports
-        if isinstance(obj, dict) and obj.get("_agentlog_header"):
+        if isinstance(obj, dict) and obj.get("_clustertrace_header"):
             fmt = obj.get("export_format_version")
             if fmt is not None and fmt > EXPORT_FORMAT_VERSION:
                 # Newer format we don't understand — refuse the whole stream
                 raise ValueError(
-                    f"export_format_version={fmt} is newer than this agentlog supports "
-                    f"({EXPORT_FORMAT_VERSION}). Upgrade agentlog."
+                    f"export_format_version={fmt} is newer than this clustertrace supports "
+                    f"({EXPORT_FORMAT_VERSION}). Upgrade clustertrace."
                 )
             skipped += 1
             continue

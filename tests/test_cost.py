@@ -1,8 +1,8 @@
 """Cost estimation, model matching, backfill."""
 import pytest
 
-import agentlog
-from agentlog import cost, storage
+import clustertrace
+from clustertrace import cost, storage
 
 
 def test_known_model_estimates_correctly():
@@ -41,11 +41,11 @@ def test_date_suffix_stripping():
 
 
 def test_env_override(monkeypatch):
-    monkeypatch.setenv("AGENTLOG_PRICING_JSON", '{"made-up-model": [10.0, 20.0]}')
+    monkeypatch.setenv("CLUSTERTRACE_PRICING_JSON", '{"made-up-model": [10.0, 20.0]}')
     # Re-import to trigger the load
     import importlib
 
-    import agentlog.cost as fresh
+    import clustertrace.cost as fresh
     importlib.reload(fresh)
     attrs = {"model": "made-up-model", "input_tokens": 1_000_000, "output_tokens": 1_000_000}
     assert fresh.estimate_span_cost(attrs) == pytest.approx(30.0)
@@ -77,9 +77,9 @@ def test_backfill_caches_cost_on_spans_and_traces():
     class FakeClient:
         def __init__(self): self.messages = FakeMessages()
 
-    wrapped = agentlog.wrap_anthropic(FakeClient())
+    wrapped = clustertrace.wrap_anthropic(FakeClient())
 
-    @agentlog.trace
+    @clustertrace.trace
     def go():
         wrapped.messages.create(model="claude-haiku-4-5-20251001", max_tokens=10, messages=[])
 

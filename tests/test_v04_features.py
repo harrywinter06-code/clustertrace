@@ -5,8 +5,8 @@ import time
 
 import pytest
 
-import agentlog
-from agentlog import cluster, export, maintenance, storage
+import clustertrace
+from clustertrace import cluster, export, maintenance, storage
 
 # --- Connection pool ---
 
@@ -21,13 +21,13 @@ def test_connection_pool_reuses_connection_within_thread(isolated_db):
 
 def test_reset_initialized_cache_closes_pooled_connections(tmp_path, monkeypatch):
     db1 = tmp_path / "first.db"
-    monkeypatch.setenv("AGENTLOG_DB", str(db1))
+    monkeypatch.setenv("CLUSTERTRACE_DB", str(db1))
     storage.reset_initialized_cache()
     with storage.connect() as c1:
         pooled = c1
     # Swap DB
     db2 = tmp_path / "second.db"
-    monkeypatch.setenv("AGENTLOG_DB", str(db2))
+    monkeypatch.setenv("CLUSTERTRACE_DB", str(db2))
     storage.reset_initialized_cache()
     # Old pooled connection should be closed
     with pytest.raises(sqlite3.ProgrammingError):
@@ -55,9 +55,9 @@ def test_auto_cost_populated_on_llm_call(isolated_db):
     class FakeClient:
         def __init__(self): self.messages = FakeMsgs()
 
-    wrapped = agentlog.wrap_anthropic(FakeClient())
+    wrapped = clustertrace.wrap_anthropic(FakeClient())
 
-    @agentlog.trace
+    @clustertrace.trace
     def go():
         wrapped.messages.create(model="claude-haiku-4-5-20251001", max_tokens=10, messages=[])
     go()
@@ -73,15 +73,15 @@ def test_auto_cost_populated_on_llm_call(isolated_db):
 
 def test_set_mode_collapses_reorderings(isolated_db):
     """A→B and B→A should be ONE cluster in set mode, TWO in ordered mode."""
-    @agentlog.trace
+    @clustertrace.trace
     def path_ab():
-        with agentlog.span("step_a"): pass
-        with agentlog.span("step_b"): pass
+        with clustertrace.span("step_a"): pass
+        with clustertrace.span("step_b"): pass
 
-    @agentlog.trace
+    @clustertrace.trace
     def path_ba():
-        with agentlog.span("step_b"): pass
-        with agentlog.span("step_a"): pass
+        with clustertrace.span("step_b"): pass
+        with clustertrace.span("step_a"): pass
 
     path_ab(); path_ab(); path_ba(); path_ba()
 
@@ -95,9 +95,9 @@ def test_set_mode_collapses_reorderings(isolated_db):
 
 def test_list_clusters_supports_offset(isolated_db):
     """Pagination via limit + offset."""
-    @agentlog.trace
+    @clustertrace.trace
     def make(i):
-        with agentlog.span(f"s{i}"): pass
+        with clustertrace.span(f"s{i}"): pass
     for i in range(5):
         make(i)
     page1 = cluster.list_clusters(limit=2, offset=0)
@@ -113,7 +113,7 @@ def test_list_clusters_supports_offset(isolated_db):
 # --- @trace sample/skip ---
 
 def test_trace_skip_bypasses_instrumentation(isolated_db):
-    @agentlog.trace(skip=True)
+    @clustertrace.trace(skip=True)
     def hot():
         return 42
     assert hot() == 42
@@ -123,7 +123,7 @@ def test_trace_skip_bypasses_instrumentation(isolated_db):
 
 
 def test_trace_sample_zero_never_records(isolated_db):
-    @agentlog.trace(sample=0.0)
+    @clustertrace.trace(sample=0.0)
     def go(): return 1
     for _ in range(20):
         go()
@@ -133,7 +133,7 @@ def test_trace_sample_zero_never_records(isolated_db):
 
 
 def test_trace_sample_one_always_records(isolated_db):
-    @agentlog.trace(sample=1.0)
+    @clustertrace.trace(sample=1.0)
     def go(): return 1
     for _ in range(10):
         go()
@@ -144,10 +144,10 @@ def test_trace_sample_one_always_records(isolated_db):
 
 def test_sampling_always_records_inside_active_trace(isolated_db):
     """A sampled-out function should still be traced when called from a parent trace."""
-    @agentlog.trace(sample=0.0)
+    @clustertrace.trace(sample=0.0)
     def child(): return 1
 
-    @agentlog.trace
+    @clustertrace.trace
     def parent():
         child()
 
@@ -163,16 +163,16 @@ def test_sampling_always_records_inside_active_trace(isolated_db):
 
 def test_failure_prefix_grouped_by_agent_tag(isolated_db):
     """When two agent topologies fail differently, per-tag prefixes should show both."""
-    @agentlog.trace(tags={"agent": "rag"})
+    @clustertrace.trace(tags={"agent": "rag"})
     def rag():
-        with agentlog.span("retrieve"): pass
-        with agentlog.span("rerank"):
+        with clustertrace.span("retrieve"): pass
+        with clustertrace.span("rerank"):
             raise RuntimeError("off-topic")
 
-    @agentlog.trace(tags={"agent": "tool_use"})
+    @clustertrace.trace(tags={"agent": "tool_use"})
     def tool_use():
-        with agentlog.span("plan"): pass
-        with agentlog.span("web_search"):
+        with clustertrace.span("plan"): pass
+        with clustertrace.span("web_search"):
             raise RuntimeError("rate limit")
 
     for _ in range(3):
@@ -203,7 +203,7 @@ def test_streaming_attr_recorded_on_anthropic_wrapper(isolated_db):
     class FakeClient:
         def __init__(self): self.messages = FakeMsgs()
 
-    wrapped = agentlog.wrap_anthropic(FakeClient())
+    wrapped = clustertrace.wrap_anthropic(FakeClient())
     wrapped.messages.create(model="claude-haiku-4-5", stream=True, messages=[])
     with storage.connect() as c:
         attrs = c.execute("SELECT attrs_json FROM spans WHERE kind='llm_call'").fetchone()["attrs_json"]
@@ -236,14 +236,14 @@ def test_cleanup_orphans_leaves_fresh_running_traces_alone(isolated_db):
 
 
 def test_flush_is_idempotent(isolated_db):
-    assert agentlog.flush() == 0
-    assert agentlog.flush() == 0
+    assert clustertrace.flush() == 0
+    assert clustertrace.flush() == 0
 
 
 # --- vacuum ---
 
 def test_vacuum_dry_run_counts_without_deleting(isolated_db):
-    @agentlog.trace
+    @clustertrace.trace
     def old(): pass
     old()
     # Push trace's start time into the past
@@ -258,7 +258,7 @@ def test_vacuum_dry_run_counts_without_deleting(isolated_db):
 
 
 def test_vacuum_deletes_old_traces(isolated_db):
-    @agentlog.trace
+    @clustertrace.trace
     def go(): pass
     go(); go()
     with storage.connect() as c:
@@ -285,7 +285,7 @@ def test_parse_duration_handles_units():
 
 def test_export_emits_header_with_versions(isolated_db):
     import io
-    @agentlog.trace
+    @clustertrace.trace
     def go(): pass
     go()
     buf = io.StringIO()
@@ -294,16 +294,16 @@ def test_export_emits_header_with_versions(isolated_db):
     lines = buf.getvalue().splitlines()
     import json
     header = json.loads(lines[0])
-    assert header["_agentlog_header"] is True
+    assert header["_clustertrace_header"] is True
     assert header["export_format_version"] == export.EXPORT_FORMAT_VERSION
-    assert header["agentlog_version"] == agentlog.__version__
+    assert header["clustertrace_version"] == clustertrace.__version__
     assert header["schema_version"] == storage._SCHEMA_VERSION
 
 
 def test_import_refuses_unknown_future_export_version(isolated_db):
     import io
-    future = '{"_agentlog_header": true, "export_format_version": 9999}\n'
-    with pytest.raises(ValueError, match="newer than this agentlog supports"):
+    future = '{"_clustertrace_header": true, "export_format_version": 9999}\n'
+    with pytest.raises(ValueError, match="newer than this clustertrace supports"):
         export.import_lines(io.StringIO(future))
 
 
@@ -312,14 +312,14 @@ def test_import_refuses_unknown_future_export_version(isolated_db):
 def test_cli_output_is_ascii_safe():
     """All click.echo() strings in the CLI must be cp1252-safe.
 
-    Real-world bug: 'agentlog demo' previously printed '→' which crashed on a
+    Real-world bug: 'clustertrace demo' previously printed '→' which crashed on a
     fresh Windows install because the default Python stdout encoding is cp1252.
     This caught it in the first-5-minutes UX test; the regression test stops it
     coming back.
     """
     import pathlib
 
-    cli_text = (pathlib.Path(__file__).parent.parent / "src" / "agentlog" / "cli.py").read_text(encoding="utf-8")
+    cli_text = (pathlib.Path(__file__).parent.parent / "src" / "clustertrace" / "cli.py").read_text(encoding="utf-8")
     import re
 
     # Lines that produce user-facing output (click.echo / click.ClickException).
@@ -334,7 +334,7 @@ def test_cli_output_is_ascii_safe():
                     f"CLI output contains a character that crashes on Windows cp1252:\n  {line.strip()}\n  {e}"
                 ) from e
     # Same check on the maintenance module's user-facing ValueError messages.
-    maint = (pathlib.Path(__file__).parent.parent / "src" / "agentlog" / "maintenance.py").read_text(encoding="utf-8")
+    maint = (pathlib.Path(__file__).parent.parent / "src" / "clustertrace" / "maintenance.py").read_text(encoding="utf-8")
     for m in re.finditer(r'raise ValueError\(f?"([^"]+)"', maint):
         msg = m.group(1)
         try:

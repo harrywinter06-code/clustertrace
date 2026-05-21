@@ -1,17 +1,17 @@
-"""agentlog CLI — launches the dashboard and runs maintenance/export commands."""
+"""clustertrace CLI — launches the dashboard and runs maintenance/export commands."""
 from __future__ import annotations
 
 import sys
 
 import click
 
-from agentlog import storage
+from clustertrace import storage
 
 
 @click.group()
 @click.version_option()
 def main() -> None:
-    """agentlog — local-first LLM agent tracing."""
+    """clustertrace — local-first LLM agent tracing."""
 
 
 @main.command()
@@ -22,10 +22,10 @@ def dashboard(host: str, port: int, reload: bool) -> None:
     """Launch the local dashboard on http://127.0.0.1:7777 (default)."""
     import uvicorn
 
-    click.echo(f"agentlog dashboard -> http://{host}:{port}")
+    click.echo(f"clustertrace dashboard -> http://{host}:{port}")
     click.echo(f"reading traces from: {storage.get_db_path()}")
     uvicorn.run(
-        "agentlog.dashboard.app:app",
+        "clustertrace.dashboard.app:app",
         host=host,
         port=port,
         reload=reload,
@@ -51,16 +51,16 @@ def demo(port: int, no_browser: bool) -> None:
 
     import uvicorn
 
-    from agentlog import export
+    from clustertrace import export
 
     # Use a temp DB so we don't clobber the user's main store.
-    tmp = tempfile.NamedTemporaryFile(prefix="agentlog-demo-", suffix=".db", delete=False)
+    tmp = tempfile.NamedTemporaryFile(prefix="clustertrace-demo-", suffix=".db", delete=False)
     tmp.close()
-    os.environ["AGENTLOG_DB"] = tmp.name
+    os.environ["CLUSTERTRACE_DB"] = tmp.name
     storage.reset_initialized_cache()
 
     try:
-        data_file = importlib.resources.files("agentlog").joinpath("data/demo-traces.jsonl")
+        data_file = importlib.resources.files("clustertrace").joinpath("data/demo-traces.jsonl")
         with data_file.open("r", encoding="utf-8") as f:
             imported, skipped = export.import_lines(f)
     except Exception as e:
@@ -70,14 +70,14 @@ def demo(port: int, no_browser: bool) -> None:
 
     # Best-effort: ensure backfilled signatures/costs are present.
     try:
-        from agentlog import cluster, cost
+        from clustertrace import cluster, cost
         cluster.backfill_signatures()
         cost.backfill()
     except Exception:
         pass
 
     url = f"http://127.0.0.1:{port}"
-    click.echo(f"agentlog demo -> {url}")
+    click.echo(f"clustertrace demo -> {url}")
     click.echo("-> start with /clusters to see the failure-pattern view")
 
     if not no_browser:
@@ -90,7 +90,7 @@ def demo(port: int, no_browser: bool) -> None:
         threading.Thread(target=_open, daemon=True).start()
 
     uvicorn.run(
-        "agentlog.dashboard.app:app",
+        "clustertrace.dashboard.app:app",
         host="127.0.0.1",
         port=port,
         log_level="warning",
@@ -99,14 +99,14 @@ def demo(port: int, no_browser: bool) -> None:
 
 @main.command("db-path")
 def db_path() -> None:
-    """Print the SQLite database path agentlog is using."""
+    """Print the SQLite database path clustertrace is using."""
     click.echo(str(storage.get_db_path()))
 
 
 @main.command("backfill-cost")
 def backfill_cost() -> None:
     """Compute and cache USD cost for every LLM call in the DB."""
-    from agentlog import cost
+    from clustertrace import cost
 
     n, total = cost.backfill()
     click.echo(f"priced {n} spans, total ${total:.4f}")
@@ -115,7 +115,7 @@ def backfill_cost() -> None:
 @main.command("backfill-signatures")
 def backfill_signatures() -> None:
     """Compute and store structural signatures for traces missing them."""
-    from agentlog import cluster
+    from clustertrace import cluster
 
     n = cluster.backfill_signatures()
     click.echo(f"signed {n} traces")
@@ -127,7 +127,7 @@ def backfill_signatures() -> None:
               help="Output HTML file. Default: stdout.")
 def snapshot(trace_id: str, out: str | None) -> None:
     """Render a self-contained shareable HTML for one trace."""
-    from agentlog import snapshot as snap
+    from clustertrace import snapshot as snap
 
     html = snap.render(trace_id)
     if out:
@@ -144,7 +144,7 @@ def snapshot(trace_id: str, out: str | None) -> None:
 @click.option("--limit", type=int, default=None, help="Cap on --all output.")
 def export_cmd(trace_id: str | None, all_: bool, limit: int | None) -> None:
     """Export trace(s) as JSON Lines (one trace per line) to stdout."""
-    from agentlog import export as exp
+    from clustertrace import export as exp
 
     if all_:
         n = exp.export_all(sys.stdout, limit=limit)
@@ -159,7 +159,7 @@ def export_cmd(trace_id: str | None, all_: bool, limit: int | None) -> None:
 @main.command("import")
 def import_cmd() -> None:
     """Import traces from JSON Lines on stdin. Existing IDs are skipped."""
-    from agentlog import export as exp
+    from clustertrace import export as exp
 
     imported, skipped = exp.import_lines(sys.stdin)
     click.echo(f"imported {imported}, skipped {skipped}")
@@ -171,7 +171,7 @@ def import_cmd() -> None:
               help="Entrypoint as 'module:function' (e.g. examples.agents:research_agent).")
 def replay_cmd(trace_id: str, entry: str) -> None:
     """Re-run a stored trace by re-calling its entrypoint with the same args."""
-    from agentlog import replay as rp
+    from clustertrace import replay as rp
 
     new_id = rp.replay(trace_id, entry)
     if new_id:
@@ -185,7 +185,7 @@ def replay_cmd(trace_id: str, entry: str) -> None:
               help="How long a 'running' trace must sit before being flipped to 'incomplete'.")
 def cleanup(stale_after: str) -> None:
     """Finalize orphan traces left in 'running' state (after a crash, kill, etc.)."""
-    from agentlog import maintenance
+    from clustertrace import maintenance
 
     secs = maintenance.parse_duration(stale_after)
     n = maintenance.cleanup_orphans(stale_after_seconds=secs)
@@ -201,7 +201,7 @@ def vacuum(older_than: str, dry_run: bool) -> None:
 
     The DB grows until you vacuum. ON DELETE CASCADE handles spans, tags, metrics.
     """
-    from agentlog import maintenance
+    from clustertrace import maintenance
 
     secs = maintenance.parse_duration(older_than)
     n, freed = maintenance.vacuum(older_than_seconds=secs, dry_run=dry_run)

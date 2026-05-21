@@ -1,11 +1,11 @@
 import pytest
 
-import agentlog
-from agentlog import storage
+import clustertrace
+from clustertrace import storage
 
 
 def test_decorator_captures_sync_io():
-    @agentlog.trace
+    @clustertrace.trace
     def add(a, b):
         return a + b
 
@@ -26,7 +26,7 @@ def test_decorator_captures_sync_io():
 
 
 def test_decorator_captures_sync_exception():
-    @agentlog.trace
+    @clustertrace.trace
     def boom():
         raise ValueError("nope")
 
@@ -44,10 +44,10 @@ def test_decorator_captures_sync_exception():
 
 
 def test_span_nesting_under_trace():
-    @agentlog.trace
+    @clustertrace.trace
     def outer():
-        with agentlog.span("inner"):
-            with agentlog.span("inner_inner"):
+        with clustertrace.span("inner"):
+            with clustertrace.span("inner_inner"):
                 pass
 
     outer()
@@ -63,9 +63,9 @@ def test_span_nesting_under_trace():
 
 
 def test_tool_call_logged():
-    @agentlog.trace
+    @clustertrace.trace
     def runs():
-        agentlog.tool_call("my_tool", args={"x": 1}, result={"y": 2})
+        clustertrace.tool_call("my_tool", args={"x": 1}, result={"y": 2})
 
     runs()
     with storage.connect() as c:
@@ -79,9 +79,9 @@ def test_tool_call_logged():
 
 
 def test_tool_call_with_error():
-    @agentlog.trace
+    @clustertrace.trace
     def runs():
-        agentlog.tool_call("flaky", args={}, error=RuntimeError("boom"))
+        clustertrace.tool_call("flaky", args={}, error=RuntimeError("boom"))
 
     runs()
     with storage.connect() as c:

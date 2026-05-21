@@ -1,12 +1,12 @@
 # Contributing
 
-agentlog is small on purpose. Before adding a feature, read [ARCHITECTURE.md](ARCHITECTURE.md) — most additions touch the same five files and the same five tables.
+clustertrace is small on purpose. Before adding a feature, read [ARCHITECTURE.md](ARCHITECTURE.md) — most additions touch the same five files and the same five tables.
 
 ## Setup
 
 ```bash
-git clone https://github.com/harrywinter06/agentlog
-cd agentlog
+git clone https://github.com/harrywinter06/clustertrace
+cd clustertrace
 uv venv
 uv pip install -e ".[anthropic,openai,dev]"
 ```
@@ -16,7 +16,7 @@ Run tests: `pytest -q`. Run lint: `ruff check .`. Both should be green before yo
 ## Where things live
 
 ```
-src/agentlog/
+src/clustertrace/
   __init__.py        public API surface — keep additions explicit
   trace.py           @trace, span, tag, metric, tool_call (uses _ctx)
   _ctx.py            shared contextvars (trace_id, span_id, new_id)
@@ -40,12 +40,12 @@ Tests in `tests/` mirror module names: `test_storage.py`, `test_cost.py`, etc.
 
 ## Adding a new LLM provider wrapper
 
-This is the most common contribution. Read [`src/agentlog/anthropic.py`](src/agentlog/anthropic.py) first — it's ~180 lines and the pattern below mirrors it.
+This is the most common contribution. Read [`src/clustertrace/anthropic.py`](src/clustertrace/anthropic.py) first — it's ~180 lines and the pattern below mirrors it.
 
-1. **Create `src/agentlog/<provider>.py`.** Define `_WrappedClient` (sync + async detected by class name), wrap the `.create()` method on whatever object hangs off the client (e.g. `client.chat.completions` for OpenAI, `client.messages` for Anthropic).
-2. **Open a span before calling the underlying SDK.** Use `current_trace_id` and `current_span_id` from `agentlog._ctx`. If `current_trace_id` is None, open a root trace.
+1. **Create `src/clustertrace/<provider>.py`.** Define `_WrappedClient` (sync + async detected by class name), wrap the `.create()` method on whatever object hangs off the client (e.g. `client.chat.completions` for OpenAI, `client.messages` for Anthropic).
+2. **Open a span before calling the underlying SDK.** Use `current_trace_id` and `current_span_id` from `clustertrace._ctx`. If `current_trace_id` is None, open a root trace.
 3. **Map the response to a `dict` summary** — at minimum `model`, `usage.input_tokens`, `usage.output_tokens`, `stop_reason`, and a truncated `content` preview. Store on `spans.output_json` and `spans.attrs_json`.
-4. **Add `wrap_<provider>` to `agentlog/__init__.py`** with a lazy import (so the package doesn't pull in the provider's SDK as a hard dep).
+4. **Add `wrap_<provider>` to `clustertrace/__init__.py`** with a lazy import (so the package doesn't pull in the provider's SDK as a hard dep).
 5. **Add an optional install extra in `pyproject.toml`:** `"<provider>" = ["the-sdk>=X.Y"]`.
 6. **Add a price entry in `cost.PRICING`** for each model id.
 7. **Write a `tests/test_wrap_<provider>.py`** using a `Fake<Provider>` class so tests run without API calls. Mirror `tests/test_wrap_openai.py`.
@@ -78,7 +78,7 @@ These are real gaps that would meaningfully help users:
 3. **Streaming response capture** for `messages.create(stream=True)` and `chat.completions.create(stream=True)`
 4. **`@trace(skip=True)`** and **`@trace(sample=0.1)`** for production deployments
 5. **Replay with prompt diff** — modify captured kwargs before re-invocation
-6. **`agentlog tail`** — CLI command that streams new traces to the terminal
+6. **`clustertrace tail`** — CLI command that streams new traces to the terminal
 7. **Auto-instrumentation hooks** for common frameworks (LangChain, LlamaIndex, DSPy)
 
 Open an issue first if you're going to spend more than a couple of hours on something.

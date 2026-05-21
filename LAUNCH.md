@@ -1,6 +1,6 @@
 # Launch playbook
 
-Internal doc — strategy + copy-paste-ready drafts for the agentlog v0.4 launch. Not part of the public surface.
+Internal doc — strategy + copy-paste-ready drafts for the clustertrace v0.4 launch. Not part of the public surface.
 
 ## What lands stars (in order of impact)
 
@@ -8,7 +8,7 @@ Internal doc — strategy + copy-paste-ready drafts for the agentlog v0.4 launch
 2. A **Twitter/X thread** posted the same morning, ~30 minutes after the HN post hits, linking back. Tag a few AI infra accounts.
 3. **PyPI publish** before either post. Without it, every link is "pip install fails" credibility damage.
 4. **Pinned good-first-issues** on the repo so the engagement that lands converts into contributors.
-5. **One comparison post** ("Langfuse vs agentlog") written by someone other than you, within month 1. Reach out beforehand; offer a 30-min walkthrough.
+5. **One comparison post** ("Langfuse vs clustertrace") written by someone other than you, within month 1. Reach out beforehand; offer a 30-min walkthrough.
 
 ## Sequence (researched, not conventional wisdom)
 
@@ -18,10 +18,10 @@ Internal doc — strategy + copy-paste-ready drafts for the agentlog v0.4 launch
 
 | When | Action |
 |---|---|
-| **T-3 days** | Publish to PyPI via the `publish.yml` GitHub Actions workflow (already in repo; just push the tag). Verify `pip install agentlog` works from a clean venv. |
+| **T-3 days** | Publish to PyPI via the `publish.yml` GitHub Actions workflow (already in repo; just push the tag). Verify `pip install clustertrace` works from a clean venv. |
 | **T-2 days** | Set repo topics: `llm`, `observability`, `tracing`, `opentelemetry`, `agents`, `langchain`, `llamaindex`, `anthropic`, `openai`, `debugging`, `python`. Add a custom social preview image (Settings → Social preview; 1280×640 PNG). Set repo description: *"Local-first LLM agent tracer with structural failure clustering."* |
 | **T-1 day** | Soft-share with 5 people who'd give honest feedback. Fix anything obvious. Pre-write replies to the predictable comments (see below). |
-| **T-0 8:25am ET (Tue)** | Verify pip install + agentlog demo works on a fresh OS install (cloud VM is fine). |
+| **T-0 8:25am ET (Tue)** | Verify pip install + clustertrace demo works on a fresh OS install (cloud VM is fine). |
 | **T-0 8:30am ET** | Post **Show HN** (draft below). Drop first comment (in *the* HN thread, replying to your own submission as OP) with motivation + honest scope within 90 seconds of submission. The first OP comment is the strongest single signal HN's ranking uses. |
 | **T-0 9:00am ET** | If thread has ≥3 comments + ≥5 upvotes by now → post Twitter/X thread. If not, wait 30 minutes — Twitter promotion of a dead HN thread looks worse. |
 | **T-0 9:30am ET** | Submit to lobste.rs (`programming` + `python` tags). Lobste.rs audience is more code-review-y; expect deeper questions. |
@@ -37,14 +37,14 @@ Internal doc — strategy + copy-paste-ready drafts for the agentlog v0.4 launch
 
 **Title** (90 char limit, this is exactly 79):
 
-> Show HN: agentlog – local-first LLM tracer that clusters traces and shows what fails
+> Show HN: clustertrace – local-first LLM tracer that clusters traces and shows what fails
 
 **Body**:
 
 ```
-Hi HN — agentlog is a small Python library + local dashboard for debugging
+Hi HN — clustertrace is a small Python library + local dashboard for debugging
 LLM agents. The differentiator: most tracers dump every trace into a list
-and let you go find the patterns yourself. agentlog groups every trace by
+and let you go find the patterns yourself. clustertrace groups every trace by
 structural signature and surfaces the longest path-prefix shared by every
 failed run — which is usually the actual root cause.
 
@@ -59,14 +59,14 @@ page in one screen instead of 47 stack traces.
 
 Try it in 30 seconds — no API key, no clone:
 
-  pip install agentlog
-  agentlog demo
+  pip install clustertrace
+  clustertrace demo
 
 Three ways to instrument your own code:
 
-  1. @agentlog.trace decorator (sync + async)
+  1. @clustertrace.trace decorator (sync + async)
   2. wrap_anthropic / wrap_openai (works with Bedrock + Vertex too)
-  3. AgentlogSpanExporter — drop in as an OpenTelemetry exporter; works
+  3. ClustertraceSpanExporter — drop in as an OpenTelemetry exporter; works
      with LangChain, LlamaIndex, and anything else emitting OTel spans
 
 Other things that ship in 0.4:
@@ -75,7 +75,7 @@ Other things that ship in 0.4:
   - Replay a stored trace by re-importing its entrypoint
   - JSONL export/import + self-contained shareable HTML snapshots
   - @trace(sample=0.1) for production
-  - agentlog vacuum --older-than 30d for retention
+  - clustertrace vacuum --older-than 30d for retention
 
 Honest about what it's not:
   - It's local-first, single-user. For team observability you want Langfuse
@@ -89,9 +89,9 @@ Built it because the visual "where does this agent fail" view didn't exist
 in any OSS tool I tried, and I didn't want to spin up Postgres + a worker
 container just to debug a script on my laptop.
 
-Repo: https://github.com/harrywinter06/agentlog
-Architecture rationale: https://github.com/harrywinter06/agentlog/blob/main/ARCHITECTURE.md
-Sample trace HTML: https://github.com/harrywinter06/agentlog/blob/main/examples/sample-trace.html
+Repo: https://github.com/harrywinter06/clustertrace
+Architecture rationale: https://github.com/harrywinter06/clustertrace/blob/main/ARCHITECTURE.md
+Sample trace HTML: https://github.com/harrywinter06/clustertrace/blob/main/examples/sample-trace.html
 
 Feedback very welcome — especially on the clustering choices (exact-string
 on RLE-collapsed signatures today; reorder-insensitive set-mode is in 0.4;
@@ -101,10 +101,10 @@ tree-edit-distance is 0.5).
 ### Pre-canned reply for "why not Langfuse?"
 
 > Different goals. Langfuse OSS is a production observability platform —
-> Postgres-backed, multi-user, retention policies, the whole thing. agentlog
+> Postgres-backed, multi-user, retention policies, the whole thing. clustertrace
 > is a single-user debug tool that pip-installs and runs against a SQLite
-> file on your laptop. The clusters view is the thing agentlog has that
-> Langfuse doesn't ship; Langfuse has multi-tenant + scale that agentlog
+> file on your laptop. The clusters view is the thing clustertrace has that
+> Langfuse doesn't ship; Langfuse has multi-tenant + scale that clustertrace
 > deliberately doesn't try to do. Pick the right tool — I run both, for
 > different reasons.
 
@@ -126,12 +126,12 @@ tree-edit-distance is 0.5).
 ## Twitter/X thread — draft
 
 ```
-1/ I made agentlog: an open-source LLM agent tracer that groups your traces
+1/ I made clustertrace: an open-source LLM agent tracer that groups your traces
    by execution pattern and tells you which patterns fail — instead of
    making you scroll through a list of 200 traces looking for what broke.
 
-   pip install agentlog
-   agentlog demo
+   pip install clustertrace
+   clustertrace demo
    [screenshot of clusters page]
 
 2/ The hook: across 60 traces of 3 demo agents, 2 clusters explained 87%
@@ -140,9 +140,9 @@ tree-edit-distance is 0.5).
    structural grouping.
 
 3/ Three ways to instrument:
-   • @agentlog.trace decorator
+   • @clustertrace.trace decorator
    • wrap_anthropic / wrap_openai (Bedrock + Vertex work via Anthropic SDK)
-   • AgentlogSpanExporter for OpenTelemetry — works with LangChain,
+   • ClustertraceSpanExporter for OpenTelemetry — works with LangChain,
      LlamaIndex, anything emitting OTel spans
 
 4/ It's local-first. SQLite on your laptop. No signup, no telemetry, no
@@ -153,7 +153,7 @@ tree-edit-distance is 0.5).
    has auto-cost on every LLM call, FTS5 search, replay of stored traces,
    self-contained HTML snapshots, retention vacuum.
 
-   Repo, docs, demo: https://github.com/harrywinter06/agentlog
+   Repo, docs, demo: https://github.com/harrywinter06/clustertrace
 
 6/ It's small on purpose. If something obvious is missing, file an issue
    — I'm reading every one. Especially interested in PRs for wrap_bedrock,
@@ -178,23 +178,23 @@ tree-edit-distance is 0.5).
 ### Cold email to AI infra blogger
 
 ```
-Subject: Comparison post idea — Langfuse vs agentlog
+Subject: Comparison post idea — Langfuse vs clustertrace
 
 Hi [name],
 
-I follow your work on AI infra. I just released agentlog, a small
+I follow your work on AI infra. I just released clustertrace, a small
 local-first LLM tracer with a feature nobody else ships in OSS — it
 auto-clusters traces by execution pattern and surfaces what failing
 clusters have in common.
 
 A concrete demo number: across 60 traces of 3 agents, 2 clusters explained
-87% of all failures. https://github.com/harrywinter06/agentlog
+87% of all failures. https://github.com/harrywinter06/clustertrace
 
 I'd be interested in your take. Happy to do a 30-min walkthrough showing
-the same workload running on agentlog and Langfuse side-by-side — the
+the same workload running on clustertrace and Langfuse side-by-side — the
 honest comparison is more interesting than the marketing.
 
-Repo + 30-second demo: pip install agentlog && agentlog demo
+Repo + 30-second demo: pip install clustertrace && clustertrace demo
 
 — Harry
 ```
@@ -210,10 +210,10 @@ It's pip-install-and-decorate. If you ran it on a few of your agent's
 runs and gave me feedback (good, bad, broken), it'd be the most useful
 thing you could do for the project this week.
 
-  pip install agentlog
-  @agentlog.trace
+  pip install clustertrace
+  @clustertrace.trace
   def your_agent_step(...): ...
-  agentlog dashboard
+  clustertrace dashboard
 
 Worst case 15 min of your time; best case I owe you a coffee and you save
 yourself debugging time later.
@@ -222,7 +222,7 @@ yourself debugging time later.
 ## Content angles for follow-up posts
 
 1. **"Why clustering instead of listing"** — the design rationale. 600 words.
-2. **"Three ways agentlog is intentionally smaller than Langfuse"** — honest
+2. **"Three ways clustertrace is intentionally smaller than Langfuse"** — honest
    self-comparison. 800 words.
 3. **"Running an agent on Bedrock through Anthropic's SDK and getting traces
    for free"** — practical worked example. 1200 words.
@@ -235,7 +235,7 @@ yourself debugging time later.
 - [ ] Take real PNG screenshots of the clusters page (with the bundled
       demo data) and embed them in the README. ASCII art is fine; real
       screenshots are better.
-- [ ] Record a 60-second screencast of `agentlog demo` and embed via
+- [ ] Record a 60-second screencast of `clustertrace demo` and embed via
       asciinema or a hosted MP4.
 - [ ] Make the GitHub repo description sharp: "Local-first LLM agent
       tracer with structural failure clustering."

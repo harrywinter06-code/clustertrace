@@ -1,15 +1,15 @@
 """JSON export/import round-trip, HTML snapshot, replay."""
 import io
 
-import agentlog
-from agentlog import export, snapshot, storage
+import clustertrace
+from clustertrace import export, snapshot, storage
 
 
 def test_export_import_roundtrip(tmp_path, monkeypatch):
-    @agentlog.trace(tags={"agent": "research"})
+    @clustertrace.trace(tags={"agent": "research"})
     def go():
-        agentlog.metric("score", 0.9)
-        agentlog.tool_call("lookup", args={"q": "x"}, result={"y": 1})
+        clustertrace.metric("score", 0.9)
+        clustertrace.tool_call("lookup", args={"q": "x"}, result={"y": 1})
     go()
     with storage.connect() as c:
         original_id = c.execute("SELECT id FROM traces").fetchone()["id"]
@@ -23,7 +23,7 @@ def test_export_import_roundtrip(tmp_path, monkeypatch):
 
     # Now move to a fresh DB and import
     fresh = tmp_path / "fresh.db"
-    monkeypatch.setenv("AGENTLOG_DB", str(fresh))
+    monkeypatch.setenv("CLUSTERTRACE_DB", str(fresh))
     storage.reset_initialized_cache()
 
     imported, skipped = export.import_lines(lines)
@@ -36,7 +36,7 @@ def test_export_import_roundtrip(tmp_path, monkeypatch):
 
 
 def test_export_import_skips_existing():
-    @agentlog.trace
+    @clustertrace.trace
     def go(): pass
     go()
     buf = io.StringIO()
@@ -49,16 +49,16 @@ def test_export_import_skips_existing():
 
 
 def test_snapshot_renders_self_contained_html():
-    @agentlog.trace(tags={"agent": "test"})
+    @clustertrace.trace(tags={"agent": "test"})
     def go():
-        with agentlog.span("inner"): pass
+        with clustertrace.span("inner"): pass
         return {"answer": 42}
     go()
     with storage.connect() as c:
         tid = c.execute("SELECT id FROM traces").fetchone()["id"]
     html = snapshot.render(tid)
     assert "<!doctype html>" in html.lower()
-    assert "agentlog snapshot" in html
+    assert "clustertrace snapshot" in html
     # No external dependencies (relative URLs, CDN links, etc.)
     assert "http://" not in html
     # Only allowed external link is the GitHub footer attribution
@@ -82,7 +82,7 @@ def test_replay_invokes_entrypoint_with_original_args():
     fake_mod = types.ModuleType("fake_replay_target")
     calls: list = []
 
-    @agentlog.trace
+    @clustertrace.trace
     def target(x, y=1):
         calls.append((x, y))
         return x + y
@@ -95,7 +95,7 @@ def test_replay_invokes_entrypoint_with_original_args():
     with storage.connect() as c:
         original_id = c.execute("SELECT id FROM traces ORDER BY started_at DESC LIMIT 1").fetchone()["id"]
 
-    from agentlog import replay as rp
+    from clustertrace import replay as rp
     new_id = rp.replay(original_id, entry="fake_replay_target:target")
 
     # The replay decorator wrapped the call so we should see TWO total invocations of `target`

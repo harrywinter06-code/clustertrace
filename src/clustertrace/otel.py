@@ -3,20 +3,20 @@
 Usage:
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
-    from agentlog.otel import AgentlogSpanExporter
+    from clustertrace.otel import ClustertraceSpanExporter
 
     provider = TracerProvider()
-    provider.add_span_processor(BatchSpanProcessor(AgentlogSpanExporter()))
+    provider.add_span_processor(BatchSpanProcessor(ClustertraceSpanExporter()))
 
 Any tool with OpenTelemetry instrumentation — LangChain, LlamaIndex, OpenAI
 SDK auto-instrumentation, Bedrock auto-instrumentation, your own custom OTel
-code — now flows into agentlog's clusters page.
+code — now flows into clustertrace's clusters page.
 """
 from __future__ import annotations
 
 from typing import Any
 
-from agentlog import storage
+from clustertrace import storage
 
 
 def _hex(span_id_int: int, width: int = 16) -> str:
@@ -24,8 +24,8 @@ def _hex(span_id_int: int, width: int = 16) -> str:
     return format(span_id_int, f"0{width}x")
 
 
-def _otel_status_to_agentlog(otel_status: Any) -> str:
-    """Map OTel StatusCode → agentlog status."""
+def _otel_status_to_clustertrace(otel_status: Any) -> str:
+    """Map OTel StatusCode → clustertrace status."""
     code = getattr(otel_status, "status_code", None)
     name = getattr(code, "name", None) or str(otel_status)
     if "ERROR" in name.upper():
@@ -33,8 +33,8 @@ def _otel_status_to_agentlog(otel_status: Any) -> str:
     return "ok"
 
 
-class AgentlogSpanExporter:
-    """A SpanExporter that writes OTel spans into agentlog's SQLite store.
+class ClustertraceSpanExporter:
+    """A SpanExporter that writes OTel spans into clustertrace's SQLite store.
 
     Implements the OTel exporter protocol (export/shutdown). No hard dependency
     on opentelemetry-sdk — the caller provides the spans.
@@ -69,13 +69,13 @@ class AgentlogSpanExporter:
 
         started_at = span.start_time / 1e9 if span.start_time else 0.0
         ended_at = span.end_time / 1e9 if span.end_time else None
-        status = _otel_status_to_agentlog(span.status)
+        status = _otel_status_to_clustertrace(span.status)
         name = span.name or "otel.span"
 
         attrs = dict(span.attributes) if span.attributes else {}
         attrs["_otel_kind"] = getattr(span.kind, "name", str(span.kind))
 
-        # Map common LLM-flavored attribute keys onto agentlog's conventions.
+        # Map common LLM-flavored attribute keys onto clustertrace's conventions.
         kind = "function"
         if any(k.startswith("gen_ai.") or k.startswith("llm.") for k in attrs):
             kind = "llm_call"

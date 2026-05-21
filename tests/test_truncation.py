@@ -1,15 +1,15 @@
 """Large payloads get truncated so they don't blow up the DB."""
 import json
 
-import agentlog
-from agentlog import storage
+import clustertrace
+from clustertrace import storage
 
 
 def test_large_input_truncated(monkeypatch):
-    monkeypatch.setenv("AGENTLOG_MAX_PAYLOAD_BYTES", "2000")
+    monkeypatch.setenv("CLUSTERTRACE_MAX_PAYLOAD_BYTES", "2000")
     big = "x" * 50_000
 
-    @agentlog.trace
+    @clustertrace.trace
     def go(payload): return payload
 
     go(big)
@@ -22,9 +22,9 @@ def test_large_input_truncated(monkeypatch):
 
 
 def test_small_input_not_truncated(monkeypatch):
-    monkeypatch.setenv("AGENTLOG_MAX_PAYLOAD_BYTES", "8192")
+    monkeypatch.setenv("CLUSTERTRACE_MAX_PAYLOAD_BYTES", "8192")
 
-    @agentlog.trace
+    @clustertrace.trace
     def go(x): return x
 
     go({"hello": "world"})

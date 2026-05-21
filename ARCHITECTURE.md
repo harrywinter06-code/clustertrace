@@ -1,6 +1,6 @@
 # ARCHITECTURE
 
-This document explains the design choices in agentlog. It's intentionally short — the codebase is small enough that you can read it end-to-end in an hour. Read this first.
+This document explains the design choices in clustertrace. It's intentionally short — the codebase is small enough that you can read it end-to-end in an hour. Read this first.
 
 ## Storage
 
@@ -13,14 +13,14 @@ There are five tables:
 | `traces` | one row per top-level trace (status, duration, signature, cost) |
 | `spans` | every span in every trace, parent-linked |
 | `trace_tags` | key/value tags filterable in the dashboard |
-| `trace_metrics` | numeric metrics from `agentlog.metric()` for time-series charts |
+| `trace_metrics` | numeric metrics from `clustertrace.metric()` for time-series charts |
 | `spans_fts` | FTS5 virtual table mirroring span name + I/O + error_message |
 
 The FTS5 table is kept in sync via three triggers (insert/update/delete on `spans`). When migration v3 runs on an existing DB, the table is backfilled inline.
 
 ## Tracing
 
-`@agentlog.trace` opens a span when the function is called and closes it on return or exception. Parent linkage uses `contextvars` — a `ContextVar` for `trace_id` and one for `span_id`. This is what makes async work without manual plumbing: `contextvars` propagate across `await` boundaries and `asyncio.gather`, so a span opened in a parent task is visible to spans opened in child tasks.
+`@clustertrace.trace` opens a span when the function is called and closes it on return or exception. Parent linkage uses `contextvars` — a `ContextVar` for `trace_id` and one for `span_id`. This is what makes async work without manual plumbing: `contextvars` propagate across `await` boundaries and `asyncio.gather`, so a span opened in a parent task is visible to spans opened in child tasks.
 
 The decorator distinguishes sync vs. async functions via `inspect.iscoroutinefunction(fn)` and dispatches to different code paths (`_sync_call_span` and `_AsyncCallSpan`) so that we never accidentally `await` a non-coroutine or block on a coroutine.
 
@@ -49,12 +49,12 @@ The cost: RLE means "loop ran 3 times" and "loop ran 30 times" look identical. T
 
 ## OpenTelemetry ingestion
 
-`agentlog.otel.AgentlogSpanExporter` implements the OTel exporter protocol (`export`, `shutdown`, `force_flush`) and writes received spans directly into the SQLite store. The mapping:
+`clustertrace.otel.ClustertraceSpanExporter` implements the OTel exporter protocol (`export`, `shutdown`, `force_flush`) and writes received spans directly into the SQLite store. The mapping:
 
 - OTel `trace_id` (16 bytes → 32 hex chars) → `traces.id`
 - OTel `span_id` (8 bytes → 16 hex chars) → `spans.id`
 - OTel `attributes` → `spans.attrs_json`
-- OTel `gen_ai.*` / `llm.*` attributes → mapped onto agentlog's conventions so the cost module works
+- OTel `gen_ai.*` / `llm.*` attributes → mapped onto clustertrace's conventions so the cost module works
 - OTel `events` with `name=exception` → `spans.error_type` / `error_message`
 - OTel parent context → `spans.parent_id`
 
@@ -62,15 +62,15 @@ Why ingestion, not export? The clustering page only works if all your traces liv
 
 ## Cost
 
-`agentlog.cost.PRICING` is a dict keyed by model id mapping to `(input_per_million, output_per_million)` in USD. `estimate_span_cost(attrs)` looks up the model (exact match → date-suffix strip → longest-prefix match) and multiplies by the captured input/output token counts.
+`clustertrace.cost.PRICING` is a dict keyed by model id mapping to `(input_per_million, output_per_million)` in USD. `estimate_span_cost(attrs)` looks up the model (exact match → date-suffix strip → longest-prefix match) and multiplies by the captured input/output token counts.
 
 `cost.backfill()` walks every `kind='llm_call'` span, computes its cost, writes it to `spans.cost_usd`, then rolls up per trace into `traces.cost_usd`. The dashboard surfaces these in the recent-traces list, the trace detail page, the snapshot HTML, and the header.
 
-Users can override or extend the pricing table at runtime via `$AGENTLOG_PRICING_JSON='{"some-model": [2.0, 10.0]}'`.
+Users can override or extend the pricing table at runtime via `$CLUSTERTRACE_PRICING_JSON='{"some-model": [2.0, 10.0]}'`.
 
 ## Replay
 
-`agentlog replay <trace_id> --entry module:function` imports the named entrypoint, reads the captured `args`/`kwargs` from the trace's root span input, and re-invokes the function. The new trace is tagged `replay_of=<original_id>` so the dashboard can pair them.
+`clustertrace replay <trace_id> --entry module:function` imports the named entrypoint, reads the captured `args`/`kwargs` from the trace's root span input, and re-invokes the function. The new trace is tagged `replay_of=<original_id>` so the dashboard can pair them.
 
 Limitations are intentional:
 
@@ -86,7 +86,7 @@ Replay-with-modified-prompt is the natural extension — same machinery, but wit
 
 ## Dashboard
 
-FastAPI + vanilla HTML + small inline JS. No build step, no framework. Static files served from `agentlog/dashboard/static/`. Templates are Jinja2. The frontend uses `fetch()` for JSON endpoints and renders dynamically.
+FastAPI + vanilla HTML + small inline JS. No build step, no framework. Static files served from `clustertrace/dashboard/static/`. Templates are Jinja2. The frontend uses `fetch()` for JSON endpoints and renders dynamically.
 
 | Page | Purpose |
 |---|---|
@@ -100,6 +100,6 @@ FastAPI + vanilla HTML + small inline JS. No build step, no framework. Static fi
 ## What's intentionally absent
 
 - **No auth.** Local-first means one user.
-- **No retention policy.** Delete `~/.agentlog/traces.db` when you want to start fresh; export with `agentlog export --all` first if you want a backup.
+- **No retention policy.** Delete `~/.clustertrace/traces.db` when you want to start fresh; export with `clustertrace export --all` first if you want a backup.
 - **No alerting.** Alerts belong with a production observability stack, not a debug tool.
 - **No streaming chunk capture.** We log on completion. Streaming sequences add complexity that doesn't justify itself for debugging.

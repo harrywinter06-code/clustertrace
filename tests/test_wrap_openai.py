@@ -1,8 +1,8 @@
 """Verify wrap_openai logs chat.completions.create on sync + async clients."""
 import pytest
 
-import agentlog
-from agentlog import storage
+import clustertrace
+from clustertrace import storage
 
 
 class FakeUsage:
@@ -75,7 +75,7 @@ class FakeAsyncOpenAI:
 
 
 def test_wrap_logs_successful_sync_call():
-    wrapped = agentlog.wrap_openai(FakeOpenAI())
+    wrapped = clustertrace.wrap_openai(FakeOpenAI())
     resp = wrapped.chat.completions.create(
         model="gpt-4o-mini",
         max_tokens=50,
@@ -92,7 +92,7 @@ def test_wrap_logs_successful_sync_call():
 
 
 def test_wrap_propagates_sync_exception():
-    wrapped = agentlog.wrap_openai(FakeOpenAI())
+    wrapped = clustertrace.wrap_openai(FakeOpenAI())
     with pytest.raises(RuntimeError):
         wrapped.chat.completions.create(model="raise", max_tokens=10, messages=[])
     with storage.connect() as c:
@@ -104,7 +104,7 @@ def test_wrap_propagates_sync_exception():
 
 
 async def test_wrap_logs_async_call():
-    wrapped = agentlog.wrap_openai(FakeAsyncOpenAI())
+    wrapped = clustertrace.wrap_openai(FakeAsyncOpenAI())
     resp = await wrapped.chat.completions.create(
         model="gpt-4o-mini",
         max_tokens=50,
@@ -118,9 +118,9 @@ async def test_wrap_logs_async_call():
 
 
 def test_wrap_nested_under_trace():
-    wrapped = agentlog.wrap_openai(FakeOpenAI())
+    wrapped = clustertrace.wrap_openai(FakeOpenAI())
 
-    @agentlog.trace
+    @clustertrace.trace
     def calls():
         wrapped.chat.completions.create(
             model="gpt-4o-mini", max_tokens=10, messages=[]
@@ -137,5 +137,5 @@ def test_wrap_exposes_other_attrs():
     class WithExtras(FakeOpenAI):
         custom = "yep"
 
-    wrapped = agentlog.wrap_openai(WithExtras())
+    wrapped = clustertrace.wrap_openai(WithExtras())
     assert wrapped.custom == "yep"

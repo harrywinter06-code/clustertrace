@@ -1,10 +1,10 @@
-"""OpenTelemetry exporter — ingest OTel spans into agentlog."""
+"""OpenTelemetry exporter — ingest OTel spans into clustertrace."""
 from dataclasses import dataclass, field
 
 import pytest
 
-from agentlog import storage
-from agentlog.otel import AgentlogSpanExporter
+from clustertrace import storage
+from clustertrace.otel import ClustertraceSpanExporter
 
 
 @dataclass
@@ -57,7 +57,7 @@ class _FakeSpan:
 
 
 def test_basic_export_creates_trace_and_span():
-    exporter = AgentlogSpanExporter()
+    exporter = ClustertraceSpanExporter()
     s = _FakeSpan(
         name="my_op",
         trace_id=0x11111111111111111111111111111111,
@@ -92,7 +92,7 @@ def test_otel_llm_attributes_map_to_llm_call_kind():
             "gen_ai.usage.output_tokens": 50,
         },
     )
-    AgentlogSpanExporter().export([s])
+    ClustertraceSpanExporter().export([s])
     with storage.connect() as c:
         kind = c.execute("SELECT kind FROM spans").fetchone()["kind"]
     assert kind == "llm_call"
@@ -114,7 +114,7 @@ def test_otel_error_status_recorded():
             )
         ],
     )
-    AgentlogSpanExporter().export([s])
+    ClustertraceSpanExporter().export([s])
     with storage.connect() as c:
         t = c.execute("SELECT status, error_type, error_message FROM traces").fetchone()
         sp = c.execute("SELECT status, error_type FROM spans").fetchone()
@@ -144,7 +144,7 @@ def test_otel_child_error_promotes_to_trace_failure():
         events=[_Event(name="exception", attributes={"exception.type": "RuntimeError", "exception.message": "child broke"})],
     )
     # Insert child first, then root — OTel exporters can deliver out-of-order
-    AgentlogSpanExporter().export([child, root])
+    ClustertraceSpanExporter().export([child, root])
     with storage.connect() as c:
         t = c.execute("SELECT status, error_type, error_message FROM traces").fetchone()
     assert t["status"] == "error", "OTel trace must be flagged failed when any child errored"
@@ -163,7 +163,7 @@ def test_otel_parent_chain():
         name="child", trace_id=parent_ctx.trace_id, span_id=0xbbbbbbbbbbbbbbbb,
         parent=parent_ctx, start_time=1_500_000_000, end_time=2_500_000_000,
     )
-    AgentlogSpanExporter().export([root, child])
+    ClustertraceSpanExporter().export([root, child])
     with storage.connect() as c:
         spans = c.execute("SELECT name, parent_id FROM spans ORDER BY started_at").fetchall()
     assert spans[0]["name"] == "root"
@@ -184,7 +184,7 @@ def test_malformed_span_does_not_break_batch():
         start_time=1_000_000_000, end_time=2_000_000_000,
     )
 
-    result = AgentlogSpanExporter().export([_Bad(), s_good])
+    result = ClustertraceSpanExporter().export([_Bad(), s_good])
     assert result == 0
     with storage.connect() as c:
         n = c.execute("SELECT COUNT(*) FROM traces").fetchone()[0]
@@ -193,7 +193,7 @@ def test_malformed_span_does_not_break_batch():
 
 
 def test_shutdown_and_force_flush_are_noops():
-    exp = AgentlogSpanExporter()
+    exp = ClustertraceSpanExporter()
     assert exp.shutdown() is None
     assert exp.force_flush() is True
 

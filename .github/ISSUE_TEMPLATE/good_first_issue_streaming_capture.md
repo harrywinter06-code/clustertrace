@@ -8,13 +8,13 @@ assignees: ''
 
 ## What
 
-Today, when you call `messages.create(stream=True)` or `chat.completions.create(stream=True)`, agentlog records the span on completion only and tags it with `streaming: true`. It does **not** capture the intermediate chunks.
+Today, when you call `messages.create(stream=True)` or `chat.completions.create(stream=True)`, clustertrace records the span on completion only and tags it with `streaming: true`. It does **not** capture the intermediate chunks.
 
 We want: chunk-by-chunk capture so debugging an agent that gets stuck mid-stream (or fails partway through) is possible.
 
 ## Why
 
-Streaming is the default for most production agents. Without chunk capture, agentlog is invisible to that workflow.
+Streaming is the default for most production agents. Without chunk capture, clustertrace is invisible to that workflow.
 
 ## Design sketch
 
@@ -26,7 +26,7 @@ Streaming is the default for most production agents. Without chunk capture, agen
 
 ## Pointers
 
-- [`src/agentlog/anthropic.py`](../../src/agentlog/anthropic.py) `_WrappedMessages.create`.
-- [`src/agentlog/openai.py`](../../src/agentlog/openai.py) `_WrappedCompletions.create`.
+- [`src/clustertrace/anthropic.py`](../../src/clustertrace/anthropic.py) `_WrappedMessages.create`.
+- [`src/clustertrace/openai.py`](../../src/clustertrace/openai.py) `_WrappedCompletions.create`.
 
 Estimated effort: 300 LOC + 200 LOC tests, a full day. The fiddly bits are sync vs async + context-manager vs iterator semantics.

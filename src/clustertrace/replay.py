@@ -3,7 +3,7 @@
 Limitations (intentional — kept simple):
   - The entrypoint module must be importable in the current Python env.
   - The original trace must have captured input args under the standard
-    `{"args": [...], "kwargs": {...}}` shape (which @agentlog.trace records).
+    `{"args": [...], "kwargs": {...}}` shape (which @clustertrace.trace records).
   - Non-JSON-serializable args (file handles, sockets) don't round-trip.
 
 The replay produces a new trace tagged `replay_of=<original_id>`, which the
@@ -15,8 +15,8 @@ import importlib
 import json
 from typing import Any
 
-import agentlog
-from agentlog import storage
+import clustertrace
+from clustertrace import storage
 
 
 def _resolve_entry(entry: str) -> Any:
@@ -60,7 +60,7 @@ def replay(trace_id: str, entry: str) -> str:
     fn = _resolve_entry(entry)
     args, kwargs = _load_root_input(trace_id)
 
-    @agentlog.trace(tags={"replay_of": trace_id, "replay_entry": entry})
+    @clustertrace.trace(tags={"replay_of": trace_id, "replay_entry": entry})
     def _wrapper(_args, _kwargs):
         return fn(*_args, **_kwargs)
 

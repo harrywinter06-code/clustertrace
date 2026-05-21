@@ -1,12 +1,12 @@
 """FTS5 search over span I/O and error messages."""
 from fastapi.testclient import TestClient
 
-import agentlog
-from agentlog.dashboard.app import app
+import clustertrace
+from clustertrace.dashboard.app import app
 
 
 def test_search_finds_text_in_input():
-    @agentlog.trace
+    @clustertrace.trace
     def go(text):
         return text
 
@@ -19,7 +19,7 @@ def test_search_finds_text_in_input():
 
 
 def test_search_finds_error_messages():
-    @agentlog.trace
+    @clustertrace.trace
     def boom():
         raise ValueError("unique-magic-string-xyzzy")
 
@@ -39,7 +39,7 @@ def test_empty_query_returns_no_results():
 
 def test_bad_fts_query_does_not_500():
     """Malformed FTS5 queries return empty results, not 500."""
-    @agentlog.trace
+    @clustertrace.trace
     def go(): pass
     go()
 
@@ -51,7 +51,7 @@ def test_bad_fts_query_does_not_500():
 
 
 def test_phrase_search():
-    @agentlog.trace
+    @clustertrace.trace
     def go(text): return text
     go("rate limit exceeded for the api")
     go("everything went fine today")

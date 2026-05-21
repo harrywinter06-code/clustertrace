@@ -8,7 +8,7 @@ assignees: ''
 
 ## What
 
-Today agentlog has two clustering modes:
+Today clustertrace has two clustering modes:
 - `mode='ordered'` — exact-string equality on RLE-collapsed sequence
 - `mode='set'` — sorted unique pairs (collapses all reorderings)
 
@@ -34,7 +34,7 @@ Storage implication: the canonical signature for a cluster becomes the "represen
 
 ## Pointers
 
-- [`src/agentlog/cluster.py`](../../src/agentlog/cluster.py).
+- [`src/clustertrace/cluster.py`](../../src/clustertrace/cluster.py).
 - [Wagner-Fischer algorithm](https://en.wikipedia.org/wiki/Wagner%E2%80%93Fischer_algorithm) is the obvious starting point.
 - [Zhang-Shasha](https://epubs.siam.org/doi/10.1137/0218082) for the tree-edit-distance variant if you want hierarchical structure too.
 - This is real algorithmic work; not a 4-hour PR.

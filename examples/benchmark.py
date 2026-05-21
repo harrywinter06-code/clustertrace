@@ -1,6 +1,6 @@
 """Overhead-per-trace benchmark — concrete numbers for the README.
 
-Compares uninstrumented function calls against @agentlog.trace across a few
+Compares uninstrumented function calls against @clustertrace.trace across a few
 workload shapes, then prints a Markdown table you can paste into a comparison
 post or PR.
 
@@ -15,25 +15,25 @@ import statistics
 import tempfile
 import time
 
-os.environ["AGENTLOG_DB"] = tempfile.mktemp(suffix="-bench.db")
+os.environ["CLUSTERTRACE_DB"] = tempfile.mktemp(suffix="-bench.db")
 
-import agentlog  # noqa: E402
-from agentlog import maintenance, storage  # noqa: E402
+import clustertrace  # noqa: E402
+from clustertrace import maintenance, storage  # noqa: E402
 
 
 def _fn(x):  # baseline, no decoration
     return x * 2
 
 
-@agentlog.trace
+@clustertrace.trace
 def _traced(x):
     return x * 2
 
 
-@agentlog.trace
+@clustertrace.trace
 def _nested(x):
-    with agentlog.span("inner"):
-        agentlog.tool_call("lookup", args={"x": x}, result={"y": x * 2})
+    with clustertrace.span("inner"):
+        clustertrace.tool_call("lookup", args={"x": x}, result={"y": x * 2})
     return x * 2
 
 
@@ -42,7 +42,7 @@ async def _async_fn(x):
     return x * 2
 
 
-@agentlog.trace
+@clustertrace.trace
 async def _async_traced(x):
     await asyncio.sleep(0)
     return x * 2
@@ -79,14 +79,14 @@ def main() -> None:
 
     rows = []
     rows.append(("baseline sync fn (no decorator)", *_bench("baseline", _fn)))
-    rows.append(("@agentlog.trace sync", *_bench("traced", _traced)))
-    rows.append(("@agentlog.trace + span + tool_call", *_bench("nested", _nested)))
+    rows.append(("@clustertrace.trace sync", *_bench("traced", _traced)))
+    rows.append(("@clustertrace.trace + span + tool_call", *_bench("nested", _nested)))
     rows.append((
         "baseline async fn",
         *(asyncio.run(_bench_async("async-baseline", _async_fn))),
     ))
     rows.append((
-        "@agentlog.trace async",
+        "@clustertrace.trace async",
         *(asyncio.run(_bench_async("async-traced", _async_traced))),
     ))
 

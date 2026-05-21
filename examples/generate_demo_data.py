@@ -1,10 +1,10 @@
-"""Populate ~/.agentlog/traces.db (or $AGENTLOG_DB) with three agent topologies.
+"""Populate ~/.clustertrace/traces.db (or $CLUSTERTRACE_DB) with three agent topologies.
 
 Runs each agent N times with varied inputs so the dashboard has real
 clusters and failure patterns to show. Uses Haiku 4.5 — ~$3-6 for 300 runs.
 
 Usage:
-  AGENTLOG_DB=./demo-traces/traces.db python examples/generate_demo_data.py 100
+  CLUSTERTRACE_DB=./demo-traces/traces.db python examples/generate_demo_data.py 100
 """
 from __future__ import annotations
 

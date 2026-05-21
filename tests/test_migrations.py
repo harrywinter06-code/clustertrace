@@ -1,8 +1,8 @@
 """Test that the schema migration runner upgrades v1 databases to v2 cleanly."""
 import sqlite3
 
-import agentlog
-from agentlog import storage
+import clustertrace
+from clustertrace import storage
 
 
 def _v1_schema():
@@ -41,7 +41,7 @@ def _v1_schema():
 
 
 def test_fresh_db_initializes_at_latest_version(isolated_db):
-    @agentlog.trace
+    @clustertrace.trace
     def go(): pass
     go()
     with storage.connect() as c:
@@ -57,7 +57,7 @@ def test_v1_db_gets_migrated_to_v2(tmp_path, monkeypatch):
     raw.commit()
     raw.close()
 
-    monkeypatch.setenv("AGENTLOG_DB", str(db))
+    monkeypatch.setenv("CLUSTERTRACE_DB", str(db))
     storage.reset_initialized_cache()
 
     # Opening triggers the migration runner.
@@ -72,7 +72,7 @@ def test_v1_db_gets_migrated_to_v2(tmp_path, monkeypatch):
 
 def test_migrations_are_idempotent(isolated_db):
     """Re-running the migration runner on a current DB is a no-op."""
-    @agentlog.trace
+    @clustertrace.trace
     def go(): pass
     go()
 

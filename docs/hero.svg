@@ -17,7 +17,7 @@
   <rect width="760" height="360" fill="url(#bg)" rx="8"/>
 
   <!-- header -->
-  <text x="22" y="34" fill="#e6e8ee" font-size="15" font-weight="700">agentlog · Execution clusters</text>
+  <text x="22" y="34" fill="#e6e8ee" font-size="15" font-weight="700">clustertrace · Execution clusters</text>
   <text x="22" y="54" fill="#8a92a3" font-size="11">246 traces · 47 failed (19%) · 29 distinct execution patterns · $0.20</text>
 
   <!-- cluster 1 -->

@@ -2,12 +2,12 @@ import asyncio
 
 import pytest
 
-import agentlog
-from agentlog import storage
+import clustertrace
+from clustertrace import storage
 
 
 async def test_decorator_captures_async_io():
-    @agentlog.trace
+    @clustertrace.trace
     async def mul(a, b):
         await asyncio.sleep(0)
         return a * b
@@ -22,7 +22,7 @@ async def test_decorator_captures_async_io():
 
 
 async def test_decorator_captures_async_exception():
-    @agentlog.trace
+    @clustertrace.trace
     async def boom():
         await asyncio.sleep(0)
         raise KeyError("missing")
@@ -41,10 +41,10 @@ async def test_decorator_captures_async_exception():
 async def test_concurrent_async_traces_isolated():
     """Each top-level coroutine gets its own trace; spans don't leak across tasks."""
 
-    @agentlog.trace
+    @clustertrace.trace
     async def task(n):
         await asyncio.sleep(0)
-        with agentlog.span(f"inner_{n}"):
+        with clustertrace.span(f"inner_{n}"):
             await asyncio.sleep(0)
         return n
 

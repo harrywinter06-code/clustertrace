@@ -13,10 +13,10 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any, TypeVar
 
-from agentlog import storage
-from agentlog._ctx import current_span_id as _current_span_id
-from agentlog._ctx import current_trace_id as _current_trace_id
-from agentlog._ctx import new_id as _new_id
+from clustertrace import storage
+from clustertrace._ctx import current_span_id as _current_span_id
+from clustertrace._ctx import current_trace_id as _current_trace_id
+from clustertrace._ctx import new_id as _new_id
 
 
 def tag(key: str, value: str | int | float | bool) -> None:
@@ -88,7 +88,7 @@ def trace(
 
     sample : float in (0, 1] — log this fraction of calls. Useful in
         production where you only need representative samples. Set via
-        $AGENTLOG_SAMPLE_RATE for a global default. Nested traces inside
+        $CLUSTERTRACE_SAMPLE_RATE for a global default. Nested traces inside
         a sampled call are always recorded.
     skip : bool — return the original function unwrapped. Use to disable
         tracing on a hot loop without removing the decorator.
@@ -104,7 +104,7 @@ def trace(
         is_coro = inspect.iscoroutinefunction(fn)
         effective_sample = sample
         if effective_sample is None:
-            env = os.environ.get("AGENTLOG_SAMPLE_RATE")
+            env = os.environ.get("CLUSTERTRACE_SAMPLE_RATE")
             if env:
                 try:
                     effective_sample = float(env)

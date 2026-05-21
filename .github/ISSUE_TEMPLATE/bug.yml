@@ -7,22 +7,22 @@ body:
     attributes:
       label: What happened?
       description: Quick description of the broken behaviour and what you expected.
-      placeholder: "@agentlog.trace on my async function logs duration=None instead of the actual ms."
+      placeholder: "@clustertrace.trace on my async function logs duration=None instead of the actual ms."
     validations:
       required: true
   - type: textarea
     id: repro
     attributes:
       label: Minimal reproduction
-      description: A code snippet that triggers it. Include any flags / env vars (`AGENTLOG_DB`, etc.).
+      description: A code snippet that triggers it. Include any flags / env vars (`CLUSTERTRACE_DB`, etc.).
       render: python
     validations:
       required: true
   - type: input
     id: version
     attributes:
-      label: agentlog version
-      description: Output of `agentlog --version`.
+      label: clustertrace version
+      description: Output of `clustertrace --version`.
       placeholder: "0.3.0"
     validations:
       required: true
