@@ -8,19 +8,22 @@ Routes:
   GET /api/trace/{trace_id}    JSON: spans for one trace
   GET /api/failure-graph       JSON: nodes + transitions for the viz
   GET /api/stats               JSON: top-level counters
+  POST /v1/traces              OTLP/JSON span ingestion (TS / browser / any OTel SDK)
 """
 from __future__ import annotations
 
 import json
 from collections import Counter, defaultdict
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from clustertrace import cluster, drift, maintenance, storage
+from clustertrace.otel import ClustertraceSpanExporter
 
 _HERE = Path(__file__).parent
 _TEMPLATES = Jinja2Templates(directory=str(_HERE / "templates"))
@@ -432,6 +435,233 @@ async def api_failure_graph():
     ]
     fail_steps = [{"step": k, "count": v} for k, v in sorted(fail_step_index.items())]
     return {"nodes": nodes, "edges": edges, "fail_steps": fail_steps}
+
+
+# ---------------------------------------------------------------------------
+# OTLP/JSON ingestion
+# ---------------------------------------------------------------------------
+
+# CORS headers exposed only on /v1/traces — keeps the rest of the dashboard
+# same-origin while permitting browser-based agents to POST spans.
+_OTLP_CORS_HEADERS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Max-Age": "600",
+}
+
+
+def _attrs_to_dict(otlp_attrs: list[dict[str, Any]] | None) -> dict[str, Any]:
+    """Convert OTLP/JSON KeyValue list into a flat python dict.
+
+    OTLP encodes attribute values inside an AnyValue object with one of:
+    stringValue, intValue, doubleValue, boolValue, arrayValue.
+    intValue is encoded as a string in protobuf-JSON (int64 fits no JS number).
+    """
+    out: dict[str, Any] = {}
+    if not otlp_attrs:
+        return out
+    for kv in otlp_attrs:
+        key = kv.get("key")
+        if not key:
+            continue
+        v = kv.get("value") or {}
+        if "stringValue" in v:
+            out[key] = v["stringValue"]
+        elif "intValue" in v:
+            raw = v["intValue"]
+            try:
+                out[key] = int(raw)
+            except (TypeError, ValueError):
+                out[key] = raw
+        elif "doubleValue" in v:
+            out[key] = float(v["doubleValue"])
+        elif "boolValue" in v:
+            out[key] = bool(v["boolValue"])
+        elif "arrayValue" in v:
+            arr = (v["arrayValue"] or {}).get("values", []) or []
+            out[key] = [_attrs_to_dict([{"key": "_", "value": item}]).get("_") for item in arr]
+    return out
+
+
+def _ns_from(raw: Any) -> int:
+    """OTLP timestamps are strings (int64) in protobuf-JSON. Be permissive."""
+    if raw is None or raw == "":
+        return 0
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 0
+
+
+class _OtlpSpanAdapter:
+    """Adapts an OTLP/JSON span dict to the duck-typed shape `_export_one` reads.
+
+    `ClustertraceSpanExporter._export_one` expects an object with:
+      .get_span_context() -> obj with .trace_id (int) and .span_id (int)
+      .parent             -> None OR obj with .span_id (int)
+      .start_time         -> int (ns)
+      .end_time           -> int (ns) or None
+      .status             -> obj with .status_code.name in {"OK","ERROR","UNSET"}
+      .name               -> str
+      .attributes         -> dict
+      .kind               -> obj with .name
+      .events             -> list of objs with .name and .attributes
+    """
+
+    class _Ctx:
+        __slots__ = ("trace_id", "span_id")
+
+        def __init__(self, trace_id: int, span_id: int) -> None:
+            self.trace_id = trace_id
+            self.span_id = span_id
+
+    class _StatusCode:
+        __slots__ = ("name",)
+
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+    class _Status:
+        __slots__ = ("status_code",)
+
+        def __init__(self, name: str) -> None:
+            self.status_code = _OtlpSpanAdapter._StatusCode(name)
+
+    class _Kind:
+        __slots__ = ("name",)
+
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+    class _Event:
+        __slots__ = ("name", "attributes")
+
+        def __init__(self, name: str, attributes: dict[str, Any]) -> None:
+            self.name = name
+            self.attributes = attributes
+
+    # OTLP SpanKind enum → string. Default to INTERNAL for unknown.
+    _KIND_NAMES = {
+        0: "INTERNAL",  # SPAN_KIND_UNSPECIFIED
+        1: "INTERNAL",
+        2: "SERVER",
+        3: "CLIENT",
+        4: "PRODUCER",
+        5: "CONSUMER",
+    }
+    # OTLP StatusCode: 0=UNSET, 1=OK, 2=ERROR
+    _STATUS_NAMES = {0: "UNSET", 1: "OK", 2: "ERROR"}
+
+    def __init__(self, span_dict: dict[str, Any]) -> None:
+        self._raw = span_dict
+        trace_id_hex = span_dict.get("traceId") or ""
+        span_id_hex = span_dict.get("spanId") or ""
+        parent_id_hex = span_dict.get("parentSpanId") or ""
+        if not trace_id_hex or not span_id_hex:
+            raise ValueError("span missing traceId or spanId")
+        # int(...,16) raises on invalid hex — caller catches and skips this span.
+        self._trace_id_int = int(trace_id_hex, 16)
+        self._span_id_int = int(span_id_hex, 16)
+        self._parent_span_id_int = int(parent_id_hex, 16) if parent_id_hex else None
+
+        self.name = span_dict.get("name") or "otel.span"
+        self.start_time = _ns_from(span_dict.get("startTimeUnixNano"))
+        end_ns = _ns_from(span_dict.get("endTimeUnixNano"))
+        self.end_time = end_ns if end_ns > 0 else None
+        self.attributes = _attrs_to_dict(span_dict.get("attributes"))
+
+        status_obj = span_dict.get("status") or {}
+        status_code = status_obj.get("code", 0)
+        self.status = self._Status(self._STATUS_NAMES.get(status_code, "UNSET"))
+
+        kind_code = span_dict.get("kind", 1)
+        self.kind = self._Kind(self._KIND_NAMES.get(kind_code, "INTERNAL"))
+
+        self.events = [
+            self._Event(
+                name=(e.get("name") or ""),
+                attributes=_attrs_to_dict(e.get("attributes")),
+            )
+            for e in (span_dict.get("events") or [])
+        ]
+
+    def get_span_context(self) -> Any:
+        return self._Ctx(self._trace_id_int, self._span_id_int)
+
+    @property
+    def parent(self) -> Any:
+        if self._parent_span_id_int is None:
+            return None
+        # _export_one only reads parent.span_id
+        return self._Ctx(self._trace_id_int, self._parent_span_id_int)
+
+
+def _iter_otlp_spans(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Walk the resourceSpans → scopeSpans → spans tree and return a flat list.
+
+    Tolerates the older `instrumentationLibrarySpans` field for compatibility
+    with OTel JS exporters that haven't migrated yet.
+    """
+    out: list[dict[str, Any]] = []
+    for rs in (payload.get("resourceSpans") or []):
+        scope_lists = rs.get("scopeSpans") or rs.get("instrumentationLibrarySpans") or []
+        for ss in scope_lists:
+            for span in (ss.get("spans") or []):
+                out.append(span)
+    return out
+
+
+@app.options("/v1/traces")
+async def options_traces() -> Response:
+    """CORS preflight for browser-based OTel exporters."""
+    return Response(status_code=204, headers=_OTLP_CORS_HEADERS)
+
+
+@app.post("/v1/traces")
+async def ingest_traces(request: Request) -> JSONResponse:
+    """OTLP/JSON span ingestion.
+
+    Accepts an `ExportTraceServiceRequest` body, walks every span, and
+    delegates each one to `ClustertraceSpanExporter._export_one`. Returns
+    an empty `ExportTracePartialSuccess` body (the OTLP success shape).
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse(
+            {"error": "invalid JSON body"},
+            status_code=400,
+            headers=_OTLP_CORS_HEADERS,
+        )
+    if not isinstance(payload, dict):
+        return JSONResponse(
+            {"error": "expected OTLP ExportTraceServiceRequest object"},
+            status_code=400,
+            headers=_OTLP_CORS_HEADERS,
+        )
+
+    exporter = ClustertraceSpanExporter()
+    rejected = 0
+    for span_dict in _iter_otlp_spans(payload):
+        try:
+            adapter = _OtlpSpanAdapter(span_dict)
+        except Exception:
+            rejected += 1
+            continue
+        try:
+            exporter._export_one(adapter)
+        except Exception:
+            # Match the exporter's batch semantics: one bad span never aborts the batch.
+            rejected += 1
+
+    body: dict[str, Any] = {"partialSuccess": {}}
+    if rejected:
+        body["partialSuccess"] = {
+            "rejectedSpans": str(rejected),
+            "errorMessage": f"{rejected} span(s) were malformed and skipped",
+        }
+    return JSONResponse(body, status_code=200, headers=_OTLP_CORS_HEADERS)
 
 
 @app.exception_handler(HTTPException)

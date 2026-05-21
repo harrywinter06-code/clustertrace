@@ -1,0 +1,48 @@
+name: ts-tests
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "clustertrace-ts/**"
+      - ".github/workflows/ts-test.yml"
+  pull_request:
+    paths:
+      - "clustertrace-ts/**"
+      - ".github/workflows/ts-test.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Node ${{ matrix.node }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: clustertrace-ts
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["20", "22"]
+        os: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npx eslint src test
+
+      - name: Test
+        run: npx vitest run
+
+      - name: Build
+        run: npx tsup
