@@ -6,15 +6,7 @@
 
 **Local-first LLM agent observability that tells you *which clusters* of traces are failing — not which individual ones.** Drop in a decorator or your existing OpenTelemetry setup, get traces grouped by execution pattern, cost per call, full-text search, and replay of failing runs.
 
-```
-Clusters (29 distinct execution patterns across 246 traces, $0.20 total)
-
-retrieve:ok → rerank:error                                           29×    100% fail   $0.04
-plan:ok → llm:ok → web_search:error                                  12×    100% fail   $0.02
-search:ok → fetch:ok → extract:ok → llm:ok → fetch:ok → ...           8×      0% fail   $0.03
-plan:ok → llm:ok → web_search:ok → calculator:error → lookup:ok …     6×      0% fail   $0.01
-…  +25 more
-```
+![agentlog clusters page](docs/hero.svg)
 
 **Two clusters explain 87% of all failures.** That's the kind of diagnosis the clusters page hands you in one screen instead of 47 stack traces.
 
@@ -164,6 +156,20 @@ agentlog db-path                                   # print SQLite path
 **How much does the demo cost?** $0. The bundled 60 traces are pre-recorded. The full reproduction script (`examples/generate_demo_data.py`, 240 traces) costs ~$2-3 in Haiku.
 
 ---
+
+## Overhead
+
+`@agentlog.trace` adds **~35 µs of pure-Python overhead** per call on modern hardware; the SQLite write that follows is the real cost (~5 ms on Linux/macOS, ~30 ms on Windows NTFS). For a debug tool on a laptop this is fine — you don't trace 100/sec. For production:
+
+```python
+@agentlog.trace(sample=0.01)   # log 1% of calls
+def hot_path(): ...
+
+@agentlog.trace(skip=True)     # zero overhead — returns the function unwrapped
+def loop_body(): ...
+```
+
+Run `python examples/benchmark.py` to see the numbers on your hardware.
 
 ## Known limitations
 

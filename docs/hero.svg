@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 360" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#171a21"/>
+      <stop offset="100%" stop-color="#0f1115"/>
+    </linearGradient>
+    <linearGradient id="errfill" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0%" stop-color="#c79a2a"/>
+      <stop offset="100%" stop-color="#d44a4a"/>
+    </linearGradient>
+    <linearGradient id="okfill" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0%" stop-color="#3a6da7"/>
+      <stop offset="100%" stop-color="#6ea8fe"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="760" height="360" fill="url(#bg)" rx="8"/>
+
+  <!-- header -->
+  <text x="22" y="34" fill="#e6e8ee" font-size="15" font-weight="700">agentlog · Execution clusters</text>
+  <text x="22" y="54" fill="#8a92a3" font-size="11">246 traces · 47 failed (19%) · 29 distinct execution patterns · $0.20</text>
+
+  <!-- cluster 1 -->
+  <rect x="20" y="76" width="720" height="58" rx="6" fill="#181b22" stroke="#d44a4a" stroke-width="0" />
+  <rect x="20" y="76" width="3" height="58" fill="#d44a4a"/>
+  <text x="34" y="98" fill="#e6e8ee" font-size="13" font-weight="700">29×</text>
+  <rect x="74" y="86" width="92" height="18" rx="4" fill="rgba(212,74,74,0.18)"/>
+  <text x="120" y="100" fill="#ff7d7d" font-size="11" text-anchor="middle">29/29 fail (100%)</text>
+  <text x="190" y="100" fill="#8a92a3" font-size="11">avg 312 ms</text>
+  <text x="296" y="100" fill="#6ea8fe" font-size="11">sample trace →</text>
+  <rect x="34" y="115" width="720" height="6" fill="#1f232c" rx="3"/>
+  <rect x="34" y="115" width="380" height="6" fill="url(#okfill)" rx="3"/>
+
+  <!-- pattern row -->
+  <g transform="translate(34, 124)">
+    <rect x="0" y="0" width="78" height="18" rx="9" fill="rgba(58,155,58,0.15)" stroke="rgba(58,155,58,0.35)"/>
+    <text x="39" y="13" fill="#6fd16f" font-size="10" text-anchor="middle">retrieve:ok</text>
+    <text x="90" y="13" fill="#8a92a3" font-size="11">›</text>
+    <rect x="100" y="0" width="84" height="18" rx="9" fill="rgba(212,74,74,0.18)" stroke="rgba(212,74,74,0.4)"/>
+    <text x="142" y="13" fill="#ff7d7d" font-size="10" text-anchor="middle">rerank:error</text>
+  </g>
+
+  <!-- cluster 2 -->
+  <rect x="20" y="148" width="720" height="58" rx="6" fill="#181b22"/>
+  <rect x="20" y="148" width="3" height="58" fill="#d44a4a"/>
+  <text x="34" y="170" fill="#e6e8ee" font-size="13" font-weight="700">12×</text>
+  <rect x="74" y="158" width="92" height="18" rx="4" fill="rgba(212,74,74,0.18)"/>
+  <text x="120" y="172" fill="#ff7d7d" font-size="11" text-anchor="middle">12/12 fail (100%)</text>
+  <text x="190" y="172" fill="#8a92a3" font-size="11">avg 1.4 s</text>
+  <text x="296" y="172" fill="#6ea8fe" font-size="11">sample trace →</text>
+  <rect x="34" y="187" width="720" height="6" fill="#1f232c" rx="3"/>
+  <rect x="34" y="187" width="157" height="6" fill="url(#okfill)" rx="3"/>
+
+  <g transform="translate(34, 196)">
+    <rect x="0" y="0" width="48" height="18" rx="9" fill="rgba(58,155,58,0.15)" stroke="rgba(58,155,58,0.35)"/>
+    <text x="24" y="13" fill="#6fd16f" font-size="10" text-anchor="middle">plan:ok</text>
+    <text x="56" y="13" fill="#8a92a3" font-size="11">›</text>
+    <rect x="66" y="0" width="156" height="18" rx="9" fill="rgba(58,155,58,0.15)" stroke="rgba(58,155,58,0.35)"/>
+    <text x="144" y="13" fill="#6fd16f" font-size="10" text-anchor="middle">anthropic.messages.create:ok</text>
+    <text x="228" y="13" fill="#8a92a3" font-size="11">›</text>
+    <rect x="238" y="0" width="118" height="18" rx="9" fill="rgba(212,74,74,0.18)" stroke="rgba(212,74,74,0.4)"/>
+    <text x="297" y="13" fill="#ff7d7d" font-size="10" text-anchor="middle">web_search:error</text>
+  </g>
+
+  <!-- cluster 3 (passing) -->
+  <rect x="20" y="220" width="720" height="58" rx="6" fill="#181b22"/>
+  <rect x="20" y="220" width="3" height="58" fill="#3a9b3a"/>
+  <text x="34" y="242" fill="#e6e8ee" font-size="13" font-weight="700">8×</text>
+  <rect x="74" y="230" width="78" height="18" rx="4" fill="rgba(58,155,58,0.12)"/>
+  <text x="113" y="244" fill="#6fd16f" font-size="11" text-anchor="middle">0/8 fail (0%)</text>
+  <text x="170" y="244" fill="#8a92a3" font-size="11">avg 2.8 s</text>
+  <text x="276" y="244" fill="#6ea8fe" font-size="11">sample trace →</text>
+  <rect x="34" y="259" width="720" height="6" fill="#1f232c" rx="3"/>
+  <rect x="34" y="259" width="105" height="6" fill="url(#okfill)" rx="3"/>
+
+  <g transform="translate(34, 268)">
+    <rect x="0" y="0" width="78" height="18" rx="9" fill="rgba(58,155,58,0.15)" stroke="rgba(58,155,58,0.35)"/>
+    <text x="39" y="13" fill="#6fd16f" font-size="10" text-anchor="middle">search:ok</text>
+    <text x="90" y="13" fill="#8a92a3" font-size="11">›</text>
+    <rect x="100" y="0" width="64" height="18" rx="9" fill="rgba(58,155,58,0.15)" stroke="rgba(58,155,58,0.35)"/>
+    <text x="132" y="13" fill="#6fd16f" font-size="10" text-anchor="middle">fetch:ok</text>
+    <text x="172" y="13" fill="#8a92a3" font-size="11">›</text>
+    <rect x="182" y="0" width="86" height="18" rx="9" fill="rgba(58,155,58,0.15)" stroke="rgba(58,155,58,0.35)"/>
+    <text x="225" y="13" fill="#6fd16f" font-size="10" text-anchor="middle">extract:ok</text>
+    <text x="276" y="13" fill="#8a92a3" font-size="11">›</text>
+    <rect x="286" y="0" width="44" height="18" rx="9" fill="rgba(58,155,58,0.15)" stroke="rgba(58,155,58,0.35)"/>
+    <text x="308" y="13" fill="#6fd16f" font-size="10" text-anchor="middle">llm:ok</text>
+    <text x="338" y="13" fill="#8a92a3" font-size="11">…</text>
+  </g>
+
+  <!-- footer headline -->
+  <text x="22" y="318" fill="#caa024" font-size="13" font-weight="600">Two clusters explain 87% of all failures.</text>
+  <text x="22" y="338" fill="#8a92a3" font-size="11">That's the diagnosis you get from one screen — instead of scrolling 47 stack traces.</text>
+</svg>

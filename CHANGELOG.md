@@ -2,6 +2,19 @@
 
 All notable changes to agentlog. Format roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); semver applies.
 
+## [0.4.1] — 2026-05-20
+
+Launch-readiness release. Code is stable from 0.4.0; new content + integration examples.
+
+### Added
+- `examples/langchain_example.py` — five-line OpenTelemetry path showing LangChain → agentlog.
+- `examples/llamaindex_example.py` — same for LlamaIndex.
+- `examples/benchmark.py` — overhead-per-trace measurements; prints a Markdown table you can paste.
+- `docs/hero.svg` — inline-renderable hero image for the README (no external host).
+- `LAUNCH.md` — internal launch playbook with Show HN draft, Twitter thread, outreach templates.
+- Pinned `good first issue` templates for `wrap_bedrock`, `wrap_gemini`, streaming-chunk capture, and tree-edit-distance clustering.
+- "Overhead" section in the README with honest numbers and the sampling/skip escape hatches.
+
 ## [0.4.0] — 2026-05-20
 
 ### Performance
