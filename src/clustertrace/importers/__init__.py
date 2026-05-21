@@ -25,12 +25,14 @@ from collections.abc import Callable
 from typing import IO
 
 from clustertrace.importers.langfuse import import_langfuse
+from clustertrace.importers.phoenix import import_phoenix
 
 # Stream input is either a file-like object or any iterable of strings.
 ImporterFn = Callable[[IO[str]], tuple[int, int]]
 
 SOURCES: dict[str, ImporterFn] = {
     "langfuse": import_langfuse,
+    "phoenix": import_phoenix,
 }
 
 SUPPORTED = ", ".join(sorted(SOURCES.keys()))
@@ -39,4 +41,5 @@ __all__ = [
     "SOURCES",
     "SUPPORTED",
     "import_langfuse",
+    "import_phoenix",
 ]
