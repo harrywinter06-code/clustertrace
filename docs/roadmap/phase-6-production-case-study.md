@@ -33,7 +33,7 @@ This phase fixes that. It cannot be done by code or by automation. It requires a
 
 - [ ] **10 cold emails / DMs** to candidates from `OUTREACH.md` "Specific people who've publicly debugged agents" + Slack/Discord communities
   - Personalize: reference something they publicly wrote about agent debugging in the last 6 months
-  - Lead with the 87%-in-two-clusters demo number; offer a 30-min call where you watch them try it
+  - Lead with the "10 of 12 failures in two clusters (83%)" demo number from the bundled 60-trace demo; offer a 30-min call where you watch them try it
 - [ ] **5 friends-of-friends** with running agent projects asked to try it (warm intro path)
 - [ ] **3 trial users actually run it on real agents** — measured by them filing a GitHub issue, asking a question, or sharing a screenshot
 - [ ] **1 user agrees to be quoted publicly** — by name + company, or anonymized as "an engineer at a Series A AI startup" if NDA forces it
