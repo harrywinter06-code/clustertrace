@@ -4,6 +4,7 @@ __pycache__/
 *.pyd
 .Python
 *.egg-info/
+.case-study-db/
 .eggs/
 dist/
 build/

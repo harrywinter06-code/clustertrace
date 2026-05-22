@@ -15,7 +15,7 @@
 
 Drop in a decorator, an SDK wrapper, or your existing OpenTelemetry setup. Get traces grouped by execution pattern, cost per call, full-text search, and replay of failing runs — all running off a single SQLite file on your laptop.
 
-**Two clusters explain 87% of all failures** in the bundled demo. That's the kind of diagnosis the clusters page hands you in one screen instead of 47 stack traces.
+**Two clusters explain 10 of the 12 failures (83%)** in the bundled 60-trace demo — 18 distinct execution patterns collapsed into one screen instead of 12 stack traces to scroll.
 
 ---
 
@@ -162,37 +162,25 @@ after we see how the read-only surface gets used.
 | `CLUSTERTRACE_DB` | `~/.clustertrace/traces.db` | SQLite file path |
 | `CLUSTERTRACE_MAX_PAYLOAD_BYTES` | `32768` | Per-field cap on serialized span I/O |
 | `CLUSTERTRACE_PRICING_JSON` | (none) | Override or extend the model price table |
+| `CLUSTERTRACE_OTLP_MAX_BYTES` | `16777216` | Body cap on `POST /v1/traces`; 413 on overflow |
 
 ---
 
-## How does this compare to Langfuse / Phoenix / LangSmith?
+## Case studies
 
-|  | clustertrace | Langfuse OSS | Arize Phoenix | LangSmith |
-|---|---|---|---|---|
-| Local-first (one binary / SQLite) | yes | no (Postgres + worker) | yes (in-memory or Postgres) | no (SaaS) |
-| **Clusters traces by execution pattern** | **yes — the differentiator** | no | partial (groupings by ID, not signature) | no |
-| **Longest common failure prefix** | **yes** | no | no | no |
-| OpenTelemetry ingestion | yes (exporter) | yes | yes | partial |
-| Cost tracking | yes (built-in pricing) | yes | yes | yes |
-| Full-text search | yes (FTS5) | yes | yes | yes |
-| Replay with captured args | yes | partial | partial | yes |
-| Self-contained shareable trace HTML | **yes** (no other tool ships this) | no | no | no |
-| Decorator + OTel + SDK wrappers | all three | OTel + wrappers | OTel | wrappers |
-| Single-file install, no server setup | yes | no | yes (for in-mem) | n/a |
-| Multi-user / teams | no | yes | yes | yes |
-| Production retention / sampling | no | yes | yes | yes |
+- [**Maintainer dogfood self-study**](docs/case-studies/maintainer-dogfood.md) — synthetic research agent, 40% → 15% failure rate after a four-line fix the cluster page surfaced in five seconds. Reproducible from `examples/case_study_research_agent.py`. Honest about what it does *not* prove (no real customer numbers yet).
 
-**Pick clustertrace when:** you're debugging a single agent or running a small eval suite on your laptop, you want clustering + failure-prefix mining as a first-class view, and you'd rather `pip install` than `docker compose up`.
+---
 
-**Pick Langfuse / Phoenix / LangSmith when:** you're running in production, need teams, need retention policies, need PII redaction, or want a managed dashboard. clustertrace is intentionally simpler.
+## When clustertrace is the wrong tool
+
+For production multi-tenant observability — teams, retention policies, PII redaction, managed dashboards — that's a different problem; clustertrace is a debug tool that runs against a single SQLite file on your laptop. It's intentionally simpler. Single-user, no auth, no persistence-tiering.
 
 ---
 
 ## FAQ
 
-**Why not just use Langfuse OSS?** Langfuse is more capable for production deployment — multi-user, Postgres-backed, fully featured. It's also a four-container Docker stack that needs a workers process and a separate web service. clustertrace is one Python package and one SQLite file. If you want to debug an agent on your laptop tonight, clustertrace is faster to set up; if you want to deploy a tracing service for a team, Langfuse is the right answer.
-
-**Why "clustering" instead of just listing traces?** Because at 200+ traces, eyeballing the list doesn't find the pattern. The demo data has 29 distinct execution patterns; the top 2 account for 87% of all failures. That's the kind of structural signal you can't see from a list — and it's the diagnosis that points you at the actual fix.
+**Why "clustering" instead of just listing traces?** Even at 60 traces (the bundled demo), eyeballing the list doesn't find the pattern. Clustering collapses them into 18 distinct execution patterns and surfaces that 2 patterns account for 10 of the 12 failures (83%). That's the kind of structural signal you can't see from a list — and at production volumes it's the diagnosis that points you at the actual fix without 100× the reading work.
 
 **Why local-only / no auth?** Trade-off: keeps the binary small and the trial frictionless. Single-user is the right default for a debug tool. The README is explicit that production observability with retention and teams is a different tool's job.
 
@@ -208,7 +196,7 @@ after we see how the read-only surface gets used.
 
 ## Overhead
 
-`@clustertrace.trace` adds **~35 µs of pure-Python overhead** per call on modern hardware; the SQLite write that follows is the real cost (~5 ms on Linux/macOS, ~30 ms on Windows NTFS). For a debug tool on a laptop this is fine — you don't trace 100/sec. For production:
+`@clustertrace.trace` adds a low-microsecond decorator overhead (~35 µs of pure-Python wrapping work on modern hardware), but **the SQLite write that follows is the real per-call cost: ~5 ms on Linux/macOS, ~30 ms on Windows NTFS**. The headline number a user running `examples/benchmark.py` will see for an end-to-end traced call is dominated by that disk write, not the decorator. For a debug tool on a laptop this is fine — you don't trace 100/sec. For production:
 
 ```python
 @clustertrace.trace(sample=0.01)   # log 1% of calls
