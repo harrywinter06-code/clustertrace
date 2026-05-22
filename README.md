@@ -162,6 +162,13 @@ after we see how the read-only surface gets used.
 | `CLUSTERTRACE_DB` | `~/.clustertrace/traces.db` | SQLite file path |
 | `CLUSTERTRACE_MAX_PAYLOAD_BYTES` | `32768` | Per-field cap on serialized span I/O |
 | `CLUSTERTRACE_PRICING_JSON` | (none) | Override or extend the model price table |
+| `CLUSTERTRACE_OTLP_MAX_BYTES` | `16777216` | Body cap on `POST /v1/traces`; 413 on overflow |
+
+---
+
+## Case studies
+
+- [**Maintainer dogfood self-study**](docs/case-studies/maintainer-dogfood.md) — synthetic research agent, 40% → 15% failure rate after a four-line fix the cluster page surfaced in five seconds. Reproducible from `examples/case_study_research_agent.py`. Honest about what it does *not* prove (no real customer numbers yet).
 
 ---
 
