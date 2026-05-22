@@ -16,7 +16,7 @@ The agent's code is in [`examples/case_study_research_agent.py`](../../examples/
 python examples/case_study_research_agent.py --runs 200 --version v1 --reset
 ```
 
-This populates `.case-study-db/v1.db` (a SQLite file). Total instrumentation overhead for 200 runs: 18.0 seconds end-to-end, including 200 simulated tool calls. That is ~90 ms per traced run including the deliberate `time.sleep` in each step; the clustertrace overhead is below the time-sleep noise floor — `examples/benchmark.py` measures the per-`@trace` cost at ~35 µs on Windows.
+This populates `.case-study-db/v1.db` (a SQLite file). Total instrumentation overhead for 200 runs: 18.0 seconds end-to-end, including 200 simulated tool calls. That is ~90 ms per traced run including the deliberate `time.sleep` in each step; the clustertrace overhead is well below the time-sleep noise floor — `examples/benchmark.py` decomposes the per-`@trace` cost into a low-microsecond Python decorator wrap and a ~5–30 ms SQLite write (the write dominates on Windows NTFS).
 
 ## The diagnosis
 
