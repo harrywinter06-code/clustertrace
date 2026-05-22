@@ -18,14 +18,14 @@
 
   <!-- header -->
   <text x="22" y="34" fill="#e6e8ee" font-size="15" font-weight="700">clustertrace · Execution clusters</text>
-  <text x="22" y="54" fill="#8a92a3" font-size="11">246 traces · 47 failed (19%) · 29 distinct execution patterns · $0.20</text>
+  <text x="22" y="54" fill="#8a92a3" font-size="11">60 traces · 12 failed (20%) · 18 distinct execution patterns · $0.20</text>
 
   <!-- cluster 1 -->
   <rect x="20" y="76" width="720" height="58" rx="6" fill="#181b22" stroke="#d44a4a" stroke-width="0" />
   <rect x="20" y="76" width="3" height="58" fill="#d44a4a"/>
-  <text x="34" y="98" fill="#e6e8ee" font-size="13" font-weight="700">29×</text>
+  <text x="34" y="98" fill="#e6e8ee" font-size="13" font-weight="700">5×</text>
   <rect x="74" y="86" width="92" height="18" rx="4" fill="rgba(212,74,74,0.18)"/>
-  <text x="120" y="100" fill="#ff7d7d" font-size="11" text-anchor="middle">29/29 fail (100%)</text>
+  <text x="120" y="100" fill="#ff7d7d" font-size="11" text-anchor="middle">5/5 fail (100%)</text>
   <text x="190" y="100" fill="#8a92a3" font-size="11">avg 312 ms</text>
   <text x="296" y="100" fill="#6ea8fe" font-size="11">sample trace →</text>
   <rect x="34" y="115" width="720" height="6" fill="#1f232c" rx="3"/>
@@ -43,9 +43,9 @@
   <!-- cluster 2 -->
   <rect x="20" y="148" width="720" height="58" rx="6" fill="#181b22"/>
   <rect x="20" y="148" width="3" height="58" fill="#d44a4a"/>
-  <text x="34" y="170" fill="#e6e8ee" font-size="13" font-weight="700">12×</text>
+  <text x="34" y="170" fill="#e6e8ee" font-size="13" font-weight="700">5×</text>
   <rect x="74" y="158" width="92" height="18" rx="4" fill="rgba(212,74,74,0.18)"/>
-  <text x="120" y="172" fill="#ff7d7d" font-size="11" text-anchor="middle">12/12 fail (100%)</text>
+  <text x="120" y="172" fill="#ff7d7d" font-size="11" text-anchor="middle">5/5 fail (100%)</text>
   <text x="190" y="172" fill="#8a92a3" font-size="11">avg 1.4 s</text>
   <text x="296" y="172" fill="#6ea8fe" font-size="11">sample trace →</text>
   <rect x="34" y="187" width="720" height="6" fill="#1f232c" rx="3"/>
@@ -89,6 +89,6 @@
   </g>
 
   <!-- footer headline -->
-  <text x="22" y="318" fill="#caa024" font-size="13" font-weight="600">Two clusters explain 87% of all failures.</text>
-  <text x="22" y="338" fill="#8a92a3" font-size="11">That's the diagnosis you get from one screen — instead of scrolling 47 stack traces.</text>
+  <text x="22" y="318" fill="#caa024" font-size="13" font-weight="600">Two clusters explain 10 of 12 failures (83%).</text>
+  <text x="22" y="338" fill="#8a92a3" font-size="11">That's the diagnosis you get from one screen — instead of scrolling 12 stack traces.</text>
 </svg>
