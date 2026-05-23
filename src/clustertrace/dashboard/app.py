@@ -50,6 +50,14 @@ def _decode_json(value: str | None):
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
+    # Landing page is the pattern view — that IS the pitch (cluster failing
+    # traces by execution pattern). The flat trace list moved to /traces so
+    # visitors don't land on the generic-table page that contradicts the pitch.
+    return _TEMPLATES.TemplateResponse(request, "clusters.html", {})
+
+
+@app.get("/traces", response_class=HTMLResponse)
+async def traces_page(request: Request):
     return _TEMPLATES.TemplateResponse(request, "index.html", {})
 
 

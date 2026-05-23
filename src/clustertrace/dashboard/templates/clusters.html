@@ -1,46 +1,51 @@
 {% extends "base.html" %}
-{% block title %}Clusters — clustertrace{% endblock %}
+{% block title %}Patterns — clustertrace{% endblock %}
 {% block content %}
 <section>
-  <h1>Execution clusters</h1>
-  <p class="muted">Traces grouped by structural signature. Each row is a distinct way your agent runs.</p>
-
-  <div class="filter-row" style="margin: 8px 0 16px;">
-    <label class="muted small">mode:</label>
-    <select id="mode-input" class="input">
-      <option value="ordered">ordered (sequence + RLE)</option>
-      <option value="set">set (reorder-insensitive)</option>
-      <option value="tree_edit">tree-edit (fuzzy, retries collapse)</option>
-    </select>
-    <span class="muted small" id="mode-hint">Set mode collapses reorderings and retries — useful when ordered produces too many clusters. Tree-edit groups traces whose token sequence differs by a small Levenshtein distance.</span>
+  <div class="hero-card">
+    <h1>Failure patterns</h1>
+    <p><b>clustertrace</b> is a local-first debugger for LLM agents. Instead of scrolling through individual run logs, it groups failing runs by <i>execution pattern</i> — the order of functions and tool calls each run made — so two underlying bugs surface as two patterns instead of twelve scattered traces. Patterns below are ordered by how often they occur; the ones with red fail-rates are where the bugs are.</p>
   </div>
 
   <div class="cards" style="grid-template-columns: 2fr 1fr;">
     <div class="card" id="summary-card">
-      <h2>Failure summary</h2>
+      <h2>Summary</h2>
       <div id="summary" class="muted">loading…</div>
     </div>
     <div class="card">
-      <h2>Top failing nodes</h2>
+      <h2>Functions involved in failures most often</h2>
       <div id="failing-nodes" class="muted small">loading…</div>
     </div>
   </div>
 
   <div class="card" style="margin-top: 16px;">
-    <h2>Common failure prefix</h2>
-    <p class="muted small">Longest path-prefix shared by every failed trace. When failures come from different agents, the global prefix is empty — check the per-agent breakdown below.</p>
+    <h2>Where failures share a path</h2>
+    <p class="muted small">The longest sequence of functions that every failing run starts with. When failures come from different agents the shared path is empty — check the per-agent breakdown below.</p>
     <div id="prefix" class="prefix-row">—</div>
     <div id="prefix-by-tag" style="margin-top:10px;"></div>
   </div>
 
   <div class="row between" style="margin-top:24px;">
-    <h2 style="margin:0;">Clusters by frequency</h2>
+    <h2 style="margin:0;">Patterns by frequency</h2>
     <div class="muted small" id="pagination-status"></div>
   </div>
   <div id="clusters-list" class="muted">loading…</div>
   <div class="row" style="margin-top:14px; justify-content:center;">
     <button id="load-more" class="btn" style="display:none;">Load 30 more</button>
   </div>
+
+  <details class="advanced-toggle" style="margin-top: 32px;">
+    <summary class="muted small">Advanced: how patterns are matched</summary>
+    <div class="filter-row" style="margin: 12px 0 16px;">
+      <label class="muted small">mode:</label>
+      <select id="mode-input" class="input">
+        <option value="ordered">exact order</option>
+        <option value="set">ignore reorderings &amp; retries</option>
+        <option value="tree_edit">fuzzy (small edit-distance)</option>
+      </select>
+      <span class="muted small">Two runs are in the same pattern if they ran the same functions in the same order. Switch modes if exact matching produces too many patterns.</span>
+    </div>
+  </details>
 </section>
 
 <script>

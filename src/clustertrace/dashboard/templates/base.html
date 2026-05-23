@@ -11,12 +11,14 @@
 <header class="topbar">
   <div class="brand"><a href="/">clustertrace</a></div>
   <nav>
-    <a href="/">Recent</a>
-    <a href="/clusters">Clusters</a>
-    <a href="/drift">Drift</a>
+    <a href="/">Patterns</a>
+    <a href="/traces">Traces</a>
     <a href="/search">Search</a>
-    <a href="/metrics">Metrics</a>
-    <a href="/failures">Failure graph</a>
+    <span class="nav-secondary-group">
+      <a href="/drift" class="nav-secondary">Drift</a>
+      <a href="/metrics" class="nav-secondary">Metrics</a>
+      <a href="/failures" class="nav-secondary">Failure graph</a>
+    </span>
   </nav>
   <div class="stats" id="header-stats" hx-get="/api/stats" hx-trigger="load" hx-swap="innerHTML">
     <span class="muted">loading…</span>
@@ -36,9 +38,9 @@
       const errPct = d.traces_total ? (d.traces_error / d.traces_total * 100).toFixed(0) : '0';
       const costStr = d.total_cost_usd > 0 ? '$' + d.total_cost_usd.toFixed(2) : '$0';
       el.innerHTML = `
-        <span><b>${d.traces_total}</b> traces</span>
+        <span><b>${d.traces_total}</b> runs</span>
         <span><b>${d.traces_error}</b> failed (${errPct}%)</span>
-        <span class="muted"><b>${d.spans_total}</b> spans</span>
+        <span class="muted"><b>${d.spans_total}</b> function calls</span>
         <span class="muted">${costStr}</span>
       `;
     } catch (e) {}

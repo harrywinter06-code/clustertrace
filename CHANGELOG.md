@@ -4,6 +4,22 @@ All notable changes to clustertrace. Format roughly follows [Keep a Changelog](h
 
 > **Renamed from `agentlog` to `clustertrace` in v0.5.0** — PyPI's name-similarity check rejected `agentlog` as too close to the existing `agentlogger` package. The new name lands the differentiator (clustering of traces) more directly anyway.
 
+## [0.9.1] — 2026-05-23
+
+### Changed — dashboard UX
+
+The dashboard now lands on the failure-pattern view, not the flat trace list.
+This is the actual pitch of the project (group failing runs by execution
+pattern), and the prior landing page contradicted it by showing a generic
+trace table on page load.
+
+- Route swap: `/` now serves the patterns view; the flat trace list moved to `/traces`.
+- New hero block on `/` explaining what clustertrace is in plain language.
+- Section headers re-worded for non-power-users: "Execution clusters" → "Failure patterns", "Top failing nodes" → "Functions involved in failures most often", "Common failure prefix" → "Where failures share a path", "Clusters by frequency" → "Patterns by frequency".
+- Pattern-matching mode picker (`ordered` / `set` / `tree_edit`) collapsed into an "Advanced" `<details>` disclosure so the default view stays clean.
+- Header stats: `spans` relabeled to `function calls`.
+- Nav trimmed to three primary items (`Patterns · Traces · Search`); `Drift · Metrics · Failure graph` demoted to a dimmed secondary group.
+
 ## [0.9.0] — 2026-05-22
 
 ### Added — Phase 4: IDE-native
