@@ -47,14 +47,14 @@ def main() -> int:
               f"rate={c.error_rate:.0%}  sig_hash={c.sig_hash}")
         print(f"     {pattern_str}")
     print()
-    print(f"--- common failure prefix across ALL failed traces ---")
+    print("--- common failure prefix across ALL failed traces ---")
     cp = summary["common_failure_prefix"]
     if cp:
         print("  " + " ->".join(f"{p['name']}:{p['status']}" for p in cp))
     else:
         print("  (none — failures don't share a prefix)")
     print()
-    print(f"--- top failing nodes ---")
+    print("--- top failing nodes ---")
     for node in summary["top_failing_nodes"][:5]:
         print(f"  {node['name']}:{node['status']}  ×{node['count']}")
     print()

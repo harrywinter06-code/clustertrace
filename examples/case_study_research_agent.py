@@ -34,7 +34,6 @@ from collections.abc import Callable
 
 import clustertrace
 
-
 # --- Question set ----------------------------------------------------------
 # Mix of question shapes so failure modes correlate with real-input
 # features, not pure noise. 40 distinct questions; the runner picks each
