@@ -178,7 +178,7 @@ For production:
 @clustertrace.trace(sample=0.01)   # log 1% of calls
 def hot_path(): ...
 
-@clustertrace.trace(skip=True)     # zero overhead — returns the function unwrapped
+@clustertrace.trace(skip=True)     # zero overhead; returns the function unwrapped
 def loop_body(): ...
 ```
 
