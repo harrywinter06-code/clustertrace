@@ -72,19 +72,28 @@ async def _bench_async(label: str, fn, n: int = 2000) -> tuple[float, float]:
 def main() -> None:
     storage.reset_initialized_cache()
 
-    print("Warming up…")
+    print(
+        "Warming up (500 traced calls, ~30s on Linux/macOS, "
+        "~2min on Windows NTFS — SQLite per-call write dominates)…",
+        flush=True,
+    )
     for _ in range(500):
         _traced(1)
         _nested(1)
 
     rows = []
+    print("  running: baseline sync fn (no decorator)", flush=True)
     rows.append(("baseline sync fn (no decorator)", *_bench("baseline", _fn)))
+    print("  running: @clustertrace.trace sync", flush=True)
     rows.append(("@clustertrace.trace sync", *_bench("traced", _traced)))
+    print("  running: @clustertrace.trace + span + tool_call", flush=True)
     rows.append(("@clustertrace.trace + span + tool_call", *_bench("nested", _nested)))
+    print("  running: baseline async fn", flush=True)
     rows.append((
         "baseline async fn",
         *(asyncio.run(_bench_async("async-baseline", _async_fn))),
     ))
+    print("  running: @clustertrace.trace async", flush=True)
     rows.append((
         "@clustertrace.trace async",
         *(asyncio.run(_bench_async("async-traced", _async_traced))),
