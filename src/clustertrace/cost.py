@@ -25,6 +25,13 @@ PRICING: dict[str, tuple[float, float]] = {
     "claude-haiku-3-5": (0.80, 4.00),
     "claude-sonnet-3-7": (3.00, 15.00),
     "claude-opus-4": (15.00, 75.00),
+    # Amazon Bedrock model IDs
+    "anthropic.claude-3-haiku": (0.25, 1.25),
+    "anthropic.claude-3-sonnet": (3.00, 15.00),
+    "anthropic.claude-3-5-sonnet": (3.00, 15.00),
+    "anthropic.claude-3-opus": (15.00, 75.00),
+    "meta.llama3-8b-instruct": (0.30, 0.60),
+    "meta.llama3-70b-instruct": (2.65, 3.50),
     # OpenAI
     "gpt-4o-mini": (0.15, 0.60),
     "gpt-4o": (2.50, 10.00),

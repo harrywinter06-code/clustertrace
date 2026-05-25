@@ -13,6 +13,8 @@ __all__ = [
     "flush",
     "wrap_anthropic",
     "wrap_openai",
+    "wrap_bedrock",
+    "wrap_gemini",
     "get_db_path",
     "annotate_cluster",
     "clear_cluster_annotation",
@@ -58,6 +60,18 @@ def wrap_openai(client):
     Explicit wrap — does not monkey-patch globally.
     """
     from clustertrace.openai import wrap_openai as _wrap
+    return _wrap(client)
+
+
+def wrap_bedrock(client):
+    """Wrap a boto3 Bedrock runtime client so model calls are logged."""
+    from clustertrace.bedrock import wrap_bedrock as _wrap
+    return _wrap(client)
+
+
+def wrap_gemini(client):
+    """Wrap a google-genai client so models.generate_content calls are logged."""
+    from clustertrace.gemini import wrap_gemini as _wrap
     return _wrap(client)
 
 
