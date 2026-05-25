@@ -2,17 +2,37 @@
 {% block title %}Review — clustertrace{% endblock %}
 {% block content %}
 <section>
-  <div class="hero-card">
-    <h1>Weekly review</h1>
-    <p>Five questions to answer in fifteen minutes. The numbers below are pulled from your traces. The point is not to optimise &mdash; it's to pick <b>one</b> specific change you'll make next week, and check next Sunday whether you actually made it.</p>
+  <!-- Headline-first (matches `/`). The marketing-style hero is gone for a
+       returning user; the window selector + a single tight tagline carry
+       orientation. The big numbers ARE the orientation. -->
+  <div class="row between" style="margin-bottom: 8px;">
+    <h1 style="margin: 0;">Weekly review</h1>
+    <div class="review-controls" id="review-controls" style="margin: 0;">
+      <span class="muted small">window:</span>
+      <button class="btn-window is-active" data-window="7d">7 days</button>
+      <button class="btn-window" data-window="30d">30 days</button>
+      <button class="btn-window" data-window="all">all time</button>
+    </div>
   </div>
+  <p class="muted small" style="margin: 0 0 18px;">Five questions in fifteen minutes. Pick <b>one</b> change to commit to next week, mark next Sunday whether you actually kept it.</p>
 
-  <div class="review-controls" id="review-controls">
-    <span class="muted small">window:</span>
-    <button class="btn-window is-active" data-window="7d">7 days</button>
-    <button class="btn-window" data-window="30d">30 days</button>
-    <button class="btn-window" data-window="all">all time</button>
-    <span class="muted small" id="review-summary" style="margin-left: 14px;">loading&hellip;</span>
+  <div class="headline-stats">
+    <div class="hl-stat">
+      <span class="num" id="hl-sessions">&mdash;</span>
+      <span class="lbl">Sessions</span>
+    </div>
+    <div class="hl-stat">
+      <span class="num quiet" id="hl-spend">&mdash;</span>
+      <span class="lbl">Spend</span>
+    </div>
+    <div class="hl-stat">
+      <span class="num err" id="hl-deadends">&mdash;</span>
+      <span class="lbl">Dead-ended</span>
+    </div>
+    <div class="hl-stat">
+      <span class="num" id="hl-open-commitments">&mdash;</span>
+      <span class="lbl">Open commitments</span>
+    </div>
   </div>
 
   <div class="review-card">
@@ -77,10 +97,20 @@ function fmtDuration(ms) {
 }
 
 async function loadSummary() {
-  const r = await fetch(`/api/review/summary?window=${WINDOW}`).then(r => r.json());
-  const wl = WINDOW === "all" ? "all time" : `last ${WINDOW.replace("d", " days")}`;
-  document.getElementById("review-summary").innerHTML =
-    `<b>${r.sessions}</b> sessions &middot; <b>${fmtUSD(r.total_cost_usd)}</b> total &middot; ${wl}`;
+  // Headline figures (UX: glance-first answer to "anything happening, anything wrong?").
+  // sessions + spend come straight from /api/review/summary.
+  // dead-ended count + open-commitments are fetched in parallel so the headline
+  // row paints in one go rather than progressively filling.
+  const [r, deadResp, commitsResp] = await Promise.all([
+    fetch(`/api/review/summary?window=${WINDOW}`).then(r => r.json()),
+    fetch(`/api/review/dead-ends?window=${WINDOW}&limit=50`).then(r => r.json()).catch(() => ({traces: []})),
+    fetch(`/api/review/commitments?limit=50`).then(r => r.json()).catch(() => ({commitments: []})),
+  ]);
+  document.getElementById("hl-sessions").textContent = r.sessions;
+  document.getElementById("hl-spend").textContent = fmtUSD(r.total_cost_usd);
+  document.getElementById("hl-deadends").textContent = (deadResp.traces || []).length;
+  const openCommitments = (commitsResp.commitments || []).filter(c => !c.outcome).length;
+  document.getElementById("hl-open-commitments").textContent = openCommitments;
 }
 
 async function loadExpensive() {

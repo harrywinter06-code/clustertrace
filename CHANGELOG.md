@@ -4,6 +4,20 @@ All notable changes to clustertrace. Format roughly follows [Keep a Changelog](h
 
 > **Renamed from `agentlog` to `clustertrace` in v0.5.0** — PyPI's name-similarity check rejected `agentlog` as too close to the existing `agentlogger` package. The new name lands the differentiator (clustering of traces) more directly anyway.
 
+## [0.14.2] — 2026-05-25
+
+### Changed — headline-first pattern applied to the rest of the dashboard
+
+0.14.1 put glance-readable headline figures at the top of `/`. This extends the same pattern to `/review`, `/traces`, and `/trace/{id}`. Same UX principle: "anything broken? how much have I spent?" answered before the eye scrolls.
+
+- **`/review`** drops the marketing hero in favour of: an inline `H1 + window-selector` row, a single tagline, then `Sessions · Spend · Dead-ended · Open commitments` at glance-size. Open-commitments is the new figure — counts commitments that haven't been marked `kept`/`partial`/`missed`, so the Sunday review surface tells you immediately if you've fallen behind on the loop.
+- **`/traces`** gains `Showing · Failed · Running · Median duration` above the table. Numbers derive from whatever the current filter returned — switching the status filter updates the headline. `← all patterns` link moves to the top-right for orientation.
+- **`/trace/{id}`** drops the comma-separated meta line for `Status · Duration · Cost · Function calls` at glance-size. Error message gets its own muted line below. Back-link points to `/traces` (the right neighbour) instead of `/` (the patterns landing).
+
+No new CSS — all four pages use the `.headline-stats` block introduced in 0.14.1. No new endpoints — `/api/review/dead-ends` and `/api/review/commitments` were already in place; the trace list page derives stats client-side from the existing response.
+
+310 tests pass, lint clean.
+
 ## [0.14.1] — 2026-05-25
 
 ### Reverted — editorial / Swiss-modernist UI (0.14.0)

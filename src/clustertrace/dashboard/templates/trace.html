@@ -2,9 +2,31 @@
 {% block title %}{{ trace_name }} — clustertrace{% endblock %}
 {% block content %}
 <section>
-  <a href="/" class="back">← all traces</a>
-  <h1>{{ trace_name }}</h1>
-  <div id="trace-meta" class="muted small"></div>
+  <a href="/traces" class="back">← all traces</a>
+  <h1 style="margin-top: 4px;">{{ trace_name }}</h1>
+
+  <!-- Headline figures (UX: status / duration / cost / spans at glance size).
+       Replaces the old comma-separated meta line. Populated by loadTrace(). -->
+  <div class="headline-stats">
+    <div class="hl-stat">
+      <span class="num" id="tr-status">&mdash;</span>
+      <span class="lbl">Status</span>
+    </div>
+    <div class="hl-stat">
+      <span class="num quiet" id="tr-duration">&mdash;</span>
+      <span class="lbl">Duration</span>
+    </div>
+    <div class="hl-stat">
+      <span class="num quiet" id="tr-cost">&mdash;</span>
+      <span class="lbl">Cost</span>
+    </div>
+    <div class="hl-stat">
+      <span class="num quiet" id="tr-spans">&mdash;</span>
+      <span class="lbl">Function calls</span>
+    </div>
+  </div>
+  <div id="trace-error" class="muted small" style="margin: -8px 0 16px;"></div>
+  <div id="trace-started" class="muted small" style="margin: -8px 0 18px;"></div>
 
   <h2>Timeline</h2>
   <div id="timeline" class="timeline"></div>
@@ -18,11 +40,18 @@ const traceId = {{ trace_id | tojson }};
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+function fmtDur(ms) {
+  if (ms == null) return 'in-flight';
+  if (ms < 1000) return ms + ' ms';
+  if (ms < 60000) return (ms / 1000).toFixed(1) + ' s';
+  return Math.floor(ms / 60000) + 'm ' + Math.floor((ms % 60000) / 1000) + 's';
+}
 
 async function loadTrace() {
   const r = await fetch(`/api/trace/${traceId}`);
   if (!r.ok) {
-    document.getElementById('trace-meta').textContent = 'Trace not found.';
+    document.getElementById('tr-status').textContent = '404';
+    document.getElementById('trace-error').textContent = 'Trace not found.';
     return;
   }
   const data = await r.json();
@@ -31,11 +60,20 @@ async function loadTrace() {
 
   const startedStr = new Date(trace.started_at * 1000).toLocaleString();
   const durMs = trace.ended_at ? Math.round((trace.ended_at - trace.started_at) * 1000) : null;
-  document.getElementById('trace-meta').innerHTML = `
-    started ${startedStr} · status <span class="badge ${trace.status}">${trace.status}</span> ·
-    ${durMs != null ? durMs + ' ms' : 'in-flight'} · ${spans.length} spans
-    ${trace.error_type ? '· <span class="err">' + escapeHtml(trace.error_type) + ': ' + escapeHtml(trace.error_message||'') + '</span>' : ''}
-  `;
+  const statusEl = document.getElementById('tr-status');
+  statusEl.textContent = trace.status;
+  if (trace.status === 'error') statusEl.classList.add('err');
+  document.getElementById('tr-duration').textContent = fmtDur(durMs);
+  document.getElementById('tr-cost').textContent =
+    trace.cost_usd != null
+      ? (trace.cost_usd < 0.01 ? '$' + trace.cost_usd.toFixed(4) : '$' + trace.cost_usd.toFixed(2))
+      : '—';
+  document.getElementById('tr-spans').textContent = spans.length;
+  document.getElementById('trace-started').textContent = `started ${startedStr}`;
+  if (trace.error_type) {
+    document.getElementById('trace-error').innerHTML =
+      `<span class="err">${escapeHtml(trace.error_type)}: ${escapeHtml(trace.error_message||'')}</span>`;
+  }
 
   if (!spans.length) {
     document.getElementById('spans').innerHTML = '<p class="muted">No spans recorded.</p>';

@@ -2,20 +2,44 @@
 {% block title %}Traces — clustertrace{% endblock %}
 {% block content %}
 <section>
-  <p class="muted small" style="margin: 0 0 12px;">Every individual run of any function you instrumented &mdash; in chronological order. To see the bigger picture (failures grouped by execution pattern), go to <a href="/">Patterns</a>.</p>
-  <div class="row between">
-    <h1>Recent traces</h1>
-    <div class="filter-row">
-      <input id="q-input" class="input" type="search" placeholder="search by name…" autocomplete="off">
-      <select id="status-input" class="input">
-        <option value="">all statuses</option>
-        <option value="ok">ok</option>
-        <option value="error">error</option>
-        <option value="running">running</option>
-      </select>
-      <select id="tag-input" class="input"><option value="">all tags</option></select>
-      <label class="muted small"><input type="checkbox" id="live-input" checked> live</label>
+  <div class="row between" style="margin-bottom: 8px;">
+    <h1 style="margin: 0;">Recent traces</h1>
+    <a href="/" class="muted small" style="margin-left: auto;">← all patterns</a>
+  </div>
+  <p class="muted small" style="margin: 0 0 14px;">Individual runs, newest first. <a href="/">Patterns</a> view groups them by execution shape.</p>
+
+  <!-- Headline figures (UX: scannable answer to "what's the state?"
+       before parsing the table). Populated by JS from the same data the
+       table renders. -->
+  <div class="headline-stats">
+    <div class="hl-stat">
+      <span class="num" id="hl-total">&mdash;</span>
+      <span class="lbl">Showing</span>
     </div>
+    <div class="hl-stat">
+      <span class="num err" id="hl-failed">&mdash;</span>
+      <span class="lbl">Failed</span>
+    </div>
+    <div class="hl-stat">
+      <span class="num quiet" id="hl-running">&mdash;</span>
+      <span class="lbl">Running</span>
+    </div>
+    <div class="hl-stat">
+      <span class="num quiet" id="hl-median">&mdash;</span>
+      <span class="lbl">Median duration</span>
+    </div>
+  </div>
+
+  <div class="filter-row">
+    <input id="q-input" class="input" type="search" placeholder="search by name…" autocomplete="off">
+    <select id="status-input" class="input">
+      <option value="">all statuses</option>
+      <option value="ok">ok</option>
+      <option value="error">error</option>
+      <option value="running">running</option>
+    </select>
+    <select id="tag-input" class="input"><option value="">all tags</option></select>
+    <label class="muted small"><input type="checkbox" id="live-input" checked> live</label>
   </div>
   <div id="trace-count" class="muted small" style="margin: 4px 0 8px;"></div>
   <table class="traces">
@@ -56,6 +80,22 @@ async function loadTraces() {
 
   document.getElementById('trace-count').textContent =
     `${data.traces.length} of ${data.total} traces`;
+
+  // Headline figures derived from whatever the current filter returned.
+  const failed = data.traces.filter(t => t.status === 'error').length;
+  const running = data.traces.filter(t => t.status === 'running').length;
+  const durations = data.traces
+    .map(t => t.duration_ms)
+    .filter(d => d != null && d > 0)
+    .sort((a, b) => a - b);
+  const median = durations.length
+    ? durations[Math.floor(durations.length / 2)]
+    : null;
+  document.getElementById('hl-total').textContent = data.traces.length;
+  document.getElementById('hl-failed').textContent = failed;
+  document.getElementById('hl-running').textContent = running;
+  document.getElementById('hl-median').textContent =
+    median == null ? '—' : (median < 1000 ? median + ' ms' : (median / 1000).toFixed(1) + ' s');
   const body = document.getElementById('traces-body');
   if (!data.traces.length) {
     if (data.total === 0) {
