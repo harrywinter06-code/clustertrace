@@ -4,6 +4,24 @@ All notable changes to clustertrace. Format roughly follows [Keep a Changelog](h
 
 > **Renamed from `agentlog` to `clustertrace` in v0.5.0** — PyPI's name-similarity check rejected `agentlog` as too close to the existing `agentlogger` package. The new name lands the differentiator (clustering of traces) more directly anyway.
 
+## [0.14.1] — 2026-05-25
+
+### Reverted — editorial / Swiss-modernist UI (0.14.0)
+
+The light/print aesthetic shipped in 0.14.0 didn't help anyone do anything faster — dashboard reads are 5-second glances, not magazine columns. Reverted to the dark-mode vocabulary 0.13.2 used.
+
+### Changed — five focused UX fixes on the dark UI
+
+Applied incremental rather than wholesale; each change is independent.
+
+1. **Landing-page headline numbers.** The explainer hero on `/` is dropped for a returning user; replaced with a single row of large figures (`Runs · Errors · Cost · Patterns`) at 36px so the 5-second-glance question — *anything broken? how much have I spent?* — is answered before the eye has to scroll. Fitts's Law: target size should be proportional to importance, not inversely.
+2. **Cluster cards: 7 fields → 3 visible, 4 on hover.** Count + error-rate + execution-pattern lead. Avg-duration, sample-trace link, judgment badge, annotation badge fade to 55% opacity and lift to 100% on row hover. Krug's progressive disclosure: don't ask the eye to parse seven equally-weighted facts when scanning thirty rows.
+3. **One hue per meaning.** Blue (`--accent`) was simultaneously the link colour, the `running` badge colour, the timeline-bar fill, and the alt-bar gradient. Reads as decoration overlapping with state. Now: blue = clickable only; `running` is amber; default timeline bars are neutral grey; the alt-bar gradient is steel. Spence's principle: one consistent colour-semantic per token.
+4. **Sticky thin nav.** The full topbar (56px) used to stick on every scroll, eating real estate. Now the brand row scrolls away and a thinner 36px nav sticks instead.
+5. **Dropped redundant "Patterns" link.** The brand wordmark already routes to `/`; there's no reason for the nav to also link there. Hick's Law: one fewer destination to consider.
+
+Memory of why: the 0.14.0 editorial flip taught me that bold full-rewrite redesigns are a coin flip even when each piece is well-executed. Future UI iterations on this project stick to small, testable, individually-revertable changes inside the existing visual vocabulary.
+
 ## [0.13.2] — 2026-05-25
 
 ### Fixed — critical: hook-spawned dashboard never started in 0.13.0 / 0.13.1

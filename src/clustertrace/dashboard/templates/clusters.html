@@ -2,19 +2,38 @@
 {% block title %}Patterns — clustertrace{% endblock %}
 {% block content %}
 <section>
-  <div class="hero-card">
-    <h1>Failure patterns</h1>
-    <p><b>clustertrace</b> is a local-first debugger for LLM agents. Instead of scrolling through individual run logs, it groups failing runs by <i>execution pattern</i> — the order of functions and tool calls each run made — so two underlying bugs surface as two patterns instead of twelve scattered traces. Patterns below are ordered by how often they occur; the ones with red fail-rates are where the bugs are.</p>
+  <!-- Landing-page headline (UX #1).
+       Returning user wants "anything broken? how much have I spent?" answered
+       before they scroll. Same numbers the brandbar shows in tiny text, at
+       glance-size here. Populated by JS once /api/stats + /api/failure-summary
+       return. -->
+  <div class="headline-stats" id="headline-stats">
+    <div class="hl-stat">
+      <span class="num" id="hl-runs">—</span>
+      <span class="lbl">Runs</span>
+    </div>
+    <div class="hl-stat">
+      <span class="num err" id="hl-errors">—</span>
+      <span class="lbl" id="hl-errors-lbl">Errors</span>
+    </div>
+    <div class="hl-stat">
+      <span class="num quiet" id="hl-cost">—</span>
+      <span class="lbl">Cost</span>
+    </div>
+    <div class="hl-stat">
+      <span class="num quiet" id="hl-patterns">—</span>
+      <span class="lbl">Patterns</span>
+    </div>
   </div>
 
   <div class="cards" style="grid-template-columns: 2fr 1fr;">
     <div class="card" id="summary-card">
-      <h2>Summary</h2>
-      <div id="summary" class="muted">loading…</div>
-    </div>
-    <div class="card">
       <h2>Functions involved in failures most often</h2>
       <div id="failing-nodes" class="muted small">loading…</div>
+    </div>
+    <div class="card">
+      <h2>Summary</h2>
+      <div id="summary" class="muted">loading…</div>
     </div>
   </div>
 
@@ -62,7 +81,10 @@ let summaryCache = null;
 const STATUSES = ["", "expected-failure", "wontfix", "priority", "acceptable"];
 
 async function loadSummary() {
-  const r = await fetch('/api/failure-summary').then(r => r.json());
+  const [r, stats] = await Promise.all([
+    fetch('/api/failure-summary').then(r => r.json()),
+    fetch('/api/stats').then(r => r.json()).catch(() => null),
+  ]);
   summaryCache = r;
   const headlineFailed = r.traces_failed_after_annotations !== undefined
     ? r.traces_failed_after_annotations : r.traces_failed;
@@ -72,6 +94,20 @@ async function loadSummary() {
   const expectedNote = r.expected_failure_traces
     ? ` <span class="muted small">(+${r.expected_failure_traces} expected, hidden)</span>`
     : '';
+
+  // Headline-stats (UX #1): the glance-readable answer up top.
+  document.getElementById('hl-runs').textContent = r.traces_total;
+  const errEl = document.getElementById('hl-errors');
+  errEl.textContent = headlineFailed;
+  document.getElementById('hl-errors-lbl').textContent =
+    headlineFailed === 0 ? 'Errors' : `Errors (${overallPct}%)`;
+  if (stats && typeof stats.total_cost_usd === 'number') {
+    const c = stats.total_cost_usd;
+    document.getElementById('hl-cost').textContent =
+      c >= 1 ? '$' + c.toFixed(2) : c > 0 ? '$' + c.toFixed(4) : '$0';
+  }
+  document.getElementById('hl-patterns').textContent = r.n_clusters;
+
   document.getElementById('summary').innerHTML = `
     <div><b>${r.traces_total}</b> traces · <b>${headlineFailed}</b> failed (<b>${overallPct}%</b>)${expectedNote}</div>
     <div class="muted small">${r.n_clusters} distinct execution patterns</div>
@@ -164,10 +200,15 @@ function renderClusters() {
           <div class="cluster-counts">
             <span class="cluster-count">${c.count}×</span>
             <span class="cluster-err ${errClass}">${c.errors}/${c.count} fail (${errPct}%)</span>${expectedNote}
-            <span class="muted small">avg ${c.avg_duration_ms != null ? c.avg_duration_ms + ' ms' : '—'}</span>
-            <a class="muted small" href="/trace/${c.representative_trace_id}">sample trace →</a>
-            ${renderJudgment(c)}
-            ${renderAnnotationBadge(c)}
+            <!-- Secondary metadata (UX #2): dimmed until hover so the eye can
+                 scan the primary count + error-rate + pattern down the page
+                 instead of parsing 7 columns per row. -->
+            <span class="cluster-secondary">
+              <span class="muted small">avg ${c.avg_duration_ms != null ? c.avg_duration_ms + ' ms' : '—'}</span>
+              <a class="muted small" href="/trace/${c.representative_trace_id}">sample trace →</a>
+              ${renderJudgment(c)}
+              ${renderAnnotationBadge(c)}
+            </span>
           </div>
           <div class="cluster-bar"><div class="cluster-bar-fill" style="width:${bar}%"></div></div>
         </div>

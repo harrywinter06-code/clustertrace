@@ -8,10 +8,23 @@
 <script src="https://unpkg.com/htmx.org@1.9.12"></script>
 </head>
 <body>
-<header class="topbar">
-  <div class="brand"><a href="/">clustertrace</a></div>
-  <nav>
-    <a href="/">Patterns</a>
+
+<!-- Brand row: top of page, scrolls away on long pages. Holds the wordmark
+     and the always-on header stats so a returning user sees the live state
+     immediately on landing. -->
+<header class="brandbar">
+  <div class="brandbar-inner">
+    <a class="brand" href="/">clustertrace</a>
+    <div class="stats" id="header-stats">
+      <span class="muted">loading…</span>
+    </div>
+  </div>
+</header>
+
+<!-- Nav row: thin, sticky. Primary destinations only. The brand wordmark
+     above is the way to /, so "Patterns" doesn't need to live in the nav. -->
+<nav class="navbar">
+  <div class="navbar-inner">
     <a href="/traces">Traces</a>
     <a href="/review">Review</a>
     <a href="/prompts">Prompts</a>
@@ -21,17 +34,16 @@
       <a href="/metrics" class="nav-secondary">Metrics</a>
       <a href="/failures" class="nav-secondary">Failure graph</a>
     </span>
-  </nav>
-  <div class="stats" id="header-stats" hx-get="/api/stats" hx-trigger="load" hx-swap="innerHTML">
-    <span class="muted">loading…</span>
   </div>
-</header>
+</nav>
+
 <main>
 {% block content %}{% endblock %}
 </main>
+
 <script>
-  // Render header stats once HTMX swaps in the JSON-ish payload.
-  // We re-fetch via fetch() for proper JSON parsing.
+  // Header stats fetch the same /api/stats every page uses for its glance.
+  // Sized small in the brandbar; the landing page (/) duplicates them big.
   (async () => {
     try {
       const r = await fetch('/api/stats');
