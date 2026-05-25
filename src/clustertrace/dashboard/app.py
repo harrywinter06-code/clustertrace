@@ -35,6 +35,57 @@ app = FastAPI(title="clustertrace", docs_url=None, redoc_url=None, openapi_url=N
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 
+# ---------------------------------------------------------------------------
+# Idle-shutdown: when invoked under the on-demand hook flow, the dashboard
+# exits if no request hits it for `CLUSTERTRACE_IDLE_SHUTDOWN_SECONDS`. Keeps
+# RAM/CPU at zero between Claude Code sessions. Disabled (0) by default so
+# manual `clustertrace dashboard` invocations don't get rugged.
+# ---------------------------------------------------------------------------
+
+import os as _os  # noqa: E402  (kept local to keep top imports clean)
+import time as _time  # noqa: E402
+
+_IDLE_SHUTDOWN_SECONDS = int(_os.environ.get("CLUSTERTRACE_IDLE_SHUTDOWN_SECONDS", "0") or "0")
+_last_activity_ts = _time.time()
+
+
+@app.middleware("http")
+async def _bump_activity(request, call_next):
+    """Every HTTP hit resets the idle timer. Browser tab polling and OTLP
+    POSTs both count — so 'someone is using clustertrace' keeps it alive."""
+    global _last_activity_ts
+    _last_activity_ts = _time.time()
+    return await call_next(request)
+
+
+@app.on_event("startup")
+async def _start_idle_watcher():
+    """Background task that checks the idle window every 60s and self-exits
+    when it's been quiet too long. No-op when CLUSTERTRACE_IDLE_SHUTDOWN_SECONDS
+    is 0 or unset (the default for manual `clustertrace dashboard` use)."""
+    if _IDLE_SHUTDOWN_SECONDS <= 0:
+        return
+
+    import asyncio as _asyncio
+    import logging as _logging
+
+    log = _logging.getLogger("clustertrace.idle")
+
+    async def _watcher():
+        while True:
+            await _asyncio.sleep(60)
+            idle = _time.time() - _last_activity_ts
+            if idle >= _IDLE_SHUTDOWN_SECONDS:
+                log.info(
+                    "idle for %.0fs (>= %ds), shutting down", idle, _IDLE_SHUTDOWN_SECONDS
+                )
+                # os._exit so we bypass uvicorn's graceful shutdown which
+                # can hang on a pool that the storage layer keeps warm.
+                _os._exit(0)
+
+    _asyncio.create_task(_watcher())
+
+
 def _row_to_dict(row) -> dict:
     return {k: row[k] for k in row.keys()}
 

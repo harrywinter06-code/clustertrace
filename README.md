@@ -105,21 +105,30 @@ clustertrace db-path                                   # print SQLite path
 
 ## Use with Claude Code
 
-Pipe Claude Code's OpenTelemetry traces into clustertrace and you get cluster, failure-pattern, and cost analysis of your *actual* Claude Code usage — which prompt shapes burn tokens, which tool sequences dominate your sessions, which stop reasons cluster around which patterns. The dashboard ships an OTLP/JSON receiver on the same port; Claude Code POSTs spans straight to it.
+Pipe Claude Code's OpenTelemetry traces into clustertrace and you get cluster, failure-pattern, and cost analysis of your *actual* Claude Code usage. The dashboard ships both an OTLP/JSON and OTLP/protobuf receiver on the same port; Claude Code POSTs spans straight to it.
 
-```bash
-# 1. print the env vars (auto-detects PowerShell on Windows, bash elsewhere)
+**One-time setup (Windows PowerShell shown; bash works too):**
+
+```powershell
+# 1. install the SessionStart hook so the dashboard spins up automatically
+#    when you open Claude Code, then self-exits 15 minutes after you close it
+clustertrace claude-code-hook install
+
+# 2. print the env vars that tell Claude Code where to POST
 clustertrace claude-code                  # metadata only (token counts, tool names)
 clustertrace claude-code --content        # also capture prompt text + tool I/O
-# 2. paste the output into your shell rc
-# 3. in another terminal:
-clustertrace dashboard
-# 4. run Claude Code as normal; traces start landing
+
+# 3. paste those env vars into $PROFILE (PowerShell) or ~/.bashrc / ~/.zshrc
+#    so every Claude Code session inherits them.
+
+# 4. restart Claude Code. Traces start landing.
 ```
 
-Every `claude_code.interaction` becomes a trace; child `claude_code.llm_request` and `claude_code.tool` spans land as nested function calls with model, input/output tokens, cache hits, stop reason, tool name, and duration. Data stays on your machine (local SQLite). The receiver enforces a 16 MiB body cap (`CLUSTERTRACE_OTLP_MAX_BYTES` to override).
+After this, `http://localhost:7777` is your dashboard whenever Claude Code is running (or has been recently). No 24/7 daemon, no Task Scheduler entry &mdash; the receiver lives only while you're using it.
 
-Limits worth knowing: clustertrace only accepts OTLP/JSON (not protobuf), which is why the helper sets `OTEL_EXPORTER_OTLP_PROTOCOL=http/json`. If you point another OTel exporter at it, do the same.
+To check the wiring: `clustertrace claude-code-hook status` reports whether the hook is installed and whether the dashboard is currently up.
+
+Every `claude_code.interaction` becomes a trace; child `claude_code.llm_request` and `claude_code.tool` spans land as nested function calls with model, input/output tokens, cache hits, stop reason, tool name, and duration. Data stays on your machine (local SQLite). The receiver enforces a 16 MiB body cap (`CLUSTERTRACE_OTLP_MAX_BYTES` to override).
 
 ## Prompt help
 

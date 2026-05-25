@@ -4,6 +4,24 @@ All notable changes to clustertrace. Format roughly follows [Keep a Changelog](h
 
 > **Renamed from `agentlog` to `clustertrace` in v0.5.0** — PyPI's name-similarity check rejected `agentlog` as too close to the existing `agentlogger` package. The new name lands the differentiator (clustering of traces) more directly anyway.
 
+## [0.13.0] — 2026-05-25
+
+### Added — on-demand dashboard via Claude Code SessionStart hook
+
+The receiver now runs **only when you're using Claude Code**, not 24/7. Two pieces:
+
+1. **Idle-shutdown built into the dashboard.** When `CLUSTERTRACE_IDLE_SHUTDOWN_SECONDS` is set, the dashboard tracks every HTTP request and self-exits if no traffic arrives in the window. Default is 0 (disabled) — manual `clustertrace dashboard` invocations are unaffected.
+
+2. **A small spawn primitive + a Claude Code hook installer:**
+   - `clustertrace ensure-dashboard` — idempotent: if nothing is on port 7777, spawns the dashboard detached (pythonw on Windows, no console) with a 15-minute idle-shutdown, then returns immediately. Designed to run from a hook (<100ms in both branches).
+   - `clustertrace claude-code-hook install` — adds a `SessionStart` hook to `~/.claude/settings.json` pointing at `ensure-dashboard`. Idempotent (re-running refreshes the port/idle config without duplicating). Preserves any existing hooks the user has.
+   - `clustertrace claude-code-hook uninstall` — removes the clustertrace entry only; leaves the user's other hooks alone.
+   - `clustertrace claude-code-hook status` — reports whether the hook is installed and whether the dashboard is currently up.
+
+Result: open Claude Code → hook fires → dashboard spins up → traces flow. Close Claude Code → no more traffic → after 15 idle minutes the dashboard exits cleanly. RAM/CPU back to zero between sessions.
+
+13 new tests covering hook install/refresh/uninstall, port-responsive detection, ensure-dashboard idempotency, idle-shutdown env wiring, and corruption-of-settings.json rejection. 309 total, all green.
+
 ## [0.12.1] — 2026-05-25
 
 ### Fixed — red-team pass on the /prompts page

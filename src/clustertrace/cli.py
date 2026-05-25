@@ -106,6 +106,229 @@ def claude_code(shell: str, port: int, content: bool, protocol: str) -> None:
                 click.echo(f"export {name}={value}")
 
 
+@main.command(name="ensure-dashboard")
+@click.option("--port", default=7777, show_default=True, type=int)
+@click.option("--idle-shutdown-minutes", default=15, show_default=True, type=int,
+              help="Auto-exit after this many idle minutes (0 disables).")
+def ensure_dashboard(port: int, idle_shutdown_minutes: int) -> None:
+    """Spawn the dashboard if nothing is on the port. Returns immediately.
+
+    Designed to be called from a Claude Code SessionStart hook: returns in
+    well under 100ms either way, so it never makes the editor feel slow.
+    """
+    from clustertrace import process as _proc
+
+    if _proc.port_responsive(port=port):
+        click.echo(f"dashboard already running on :{port}", err=True)
+        return
+    pid = _proc.spawn_dashboard_detached(
+        port=port, idle_shutdown_seconds=idle_shutdown_minutes * 60
+    )
+    click.echo(
+        f"spawned dashboard pid={pid} on :{port} "
+        f"(idle-shutdown {idle_shutdown_minutes}m)",
+        err=True,
+    )
+
+
+@main.group(name="claude-code-hook")
+def claude_code_hook() -> None:
+    """Wire the dashboard into Claude Code's SessionStart hook so the
+    receiver spins up only when you're actually using Claude Code, then
+    self-exits after the idle window."""
+
+
+def _claude_settings_path():
+    """Resolve the user-global Claude Code settings.json path."""
+    from pathlib import Path
+
+    return Path.home() / ".claude" / "settings.json"
+
+
+_HOOK_COMMAND_TEMPLATE = "clustertrace ensure-dashboard --port {port} --idle-shutdown-minutes {idle}"
+
+
+def _hook_command(port: int, idle_minutes: int) -> str:
+    return _HOOK_COMMAND_TEMPLATE.format(port=port, idle=idle_minutes)
+
+
+def _load_claude_settings():
+    """Load settings.json, returning (parsed_dict, path). Empty dict if file
+    doesn't exist or is empty. Raises ClickException on parse error."""
+    path = _claude_settings_path()
+    if not path.exists():
+        return {}, path
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as e:
+        raise click.ClickException(f"can't read {path}: {e}") from e
+    if not text.strip():
+        return {}, path
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise click.ClickException(
+            f"settings.json is not valid JSON ({path}: {e}). Fix it manually first."
+        ) from e
+    if not isinstance(data, dict):
+        raise click.ClickException(
+            f"expected an object at top of {path}, got {type(data).__name__}"
+        )
+    return data, path
+
+
+def _write_claude_settings(data: dict, path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+
+@claude_code_hook.command(name="install")
+@click.option("--port", default=7777, show_default=True, type=int)
+@click.option("--idle-shutdown-minutes", default=15, show_default=True, type=int)
+def hook_install(port: int, idle_shutdown_minutes: int) -> None:
+    """Add a SessionStart hook to ~/.claude/settings.json. Idempotent."""
+    data, path = _load_claude_settings()
+    hooks_root = data.setdefault("hooks", {})
+    if not isinstance(hooks_root, dict):
+        raise click.ClickException(
+            f"`hooks` in {path} is not an object; refusing to overwrite."
+        )
+    session_start = hooks_root.setdefault("SessionStart", [])
+    if not isinstance(session_start, list):
+        raise click.ClickException(
+            f"`hooks.SessionStart` in {path} is not a list; refusing to overwrite."
+        )
+
+    cmd = _hook_command(port, idle_shutdown_minutes)
+    # Find any existing clustertrace block (matcher "*" with our command) so
+    # re-running install just refreshes the port / idle config.
+    target_block = None
+    for block in session_start:
+        if not isinstance(block, dict):
+            continue
+        inner = block.get("hooks") or []
+        if any(
+            isinstance(h, dict)
+            and h.get("type") == "command"
+            and isinstance(h.get("command"), str)
+            and h["command"].startswith("clustertrace ensure-dashboard")
+            for h in inner
+        ):
+            target_block = block
+            break
+
+    if target_block is None:
+        session_start.append(
+            {
+                "matcher": "*",
+                "hooks": [{"type": "command", "command": cmd}],
+            }
+        )
+        action = "added"
+    else:
+        # Refresh just our command line in case the port/idle changed.
+        new_inner = []
+        for h in target_block.get("hooks") or []:
+            if (
+                isinstance(h, dict)
+                and h.get("type") == "command"
+                and isinstance(h.get("command"), str)
+                and h["command"].startswith("clustertrace ensure-dashboard")
+            ):
+                new_inner.append({"type": "command", "command": cmd})
+            else:
+                new_inner.append(h)
+        target_block["hooks"] = new_inner
+        action = "refreshed"
+
+    _write_claude_settings(data, path)
+    click.echo(f"{action} SessionStart hook in {path}")
+    click.echo(f"  command: {cmd}")
+    click.echo("")
+    click.echo("Restart Claude Code (or just open a new session) to pick it up.")
+    click.echo("Make sure the OTel env vars from `clustertrace claude-code` are in your shell profile too,")
+    click.echo("or Claude Code won't know where to send traces.")
+
+
+@claude_code_hook.command(name="uninstall")
+def hook_uninstall() -> None:
+    """Remove the clustertrace SessionStart hook (if installed)."""
+    data, path = _load_claude_settings()
+    hooks_root = data.get("hooks") or {}
+    session_start = hooks_root.get("SessionStart") or []
+    if not isinstance(session_start, list):
+        click.echo(f"no clustertrace hook found in {path}")
+        return
+
+    new_blocks = []
+    removed = 0
+    for block in session_start:
+        if not isinstance(block, dict):
+            new_blocks.append(block)
+            continue
+        inner = block.get("hooks") or []
+        kept = [
+            h for h in inner
+            if not (
+                isinstance(h, dict)
+                and h.get("type") == "command"
+                and isinstance(h.get("command"), str)
+                and h["command"].startswith("clustertrace ensure-dashboard")
+            )
+        ]
+        if len(kept) != len(inner):
+            removed += len(inner) - len(kept)
+        if kept:
+            block["hooks"] = kept
+            new_blocks.append(block)
+        # else drop the now-empty block entirely
+
+    if removed == 0:
+        click.echo(f"no clustertrace hook found in {path}")
+        return
+
+    if new_blocks:
+        hooks_root["SessionStart"] = new_blocks
+    elif "SessionStart" in hooks_root:
+        del hooks_root["SessionStart"]
+    if not hooks_root and "hooks" in data:
+        del data["hooks"]
+
+    _write_claude_settings(data, path)
+    click.echo(f"removed {removed} clustertrace hook command(s) from {path}")
+
+
+@claude_code_hook.command(name="status")
+@click.option("--port", default=7777, show_default=True, type=int)
+def hook_status(port: int) -> None:
+    """Report whether the hook is installed and whether the dashboard is up."""
+    from clustertrace import process as _proc
+
+    data, path = _load_claude_settings()
+    hooks_root = data.get("hooks") or {}
+    session_start = hooks_root.get("SessionStart") or []
+    installed = False
+    if isinstance(session_start, list):
+        for block in session_start:
+            if not isinstance(block, dict):
+                continue
+            for h in block.get("hooks") or []:
+                if (
+                    isinstance(h, dict)
+                    and h.get("type") == "command"
+                    and isinstance(h.get("command"), str)
+                    and h["command"].startswith("clustertrace ensure-dashboard")
+                ):
+                    installed = True
+
+    click.echo(f"settings.json:     {path}")
+    click.echo(f"SessionStart hook: {'INSTALLED' if installed else 'NOT INSTALLED'}")
+    click.echo(f"Dashboard on :{port}: {'RUNNING' if _proc.port_responsive(port=port) else 'idle'}")
+    if not installed:
+        click.echo("")
+        click.echo("Run `clustertrace claude-code-hook install` to wire it up.")
+
+
 @main.command()
 @click.option("--port", default=7777, show_default=True, type=int)
 @click.option("--no-browser", is_flag=True, help="Don't open the browser automatically.")
