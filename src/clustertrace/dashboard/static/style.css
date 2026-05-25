@@ -525,6 +525,15 @@ details.advanced-toggle summary:hover { color: var(--fg); }
   color: var(--muted);
   margin-top: 2px;
 }
+/* Sparkline slot under each landing-page headline figure (14-day trend). */
+.hl-stat .spark-slot {
+  margin-top: 6px;
+  color: var(--muted);
+  height: 22px;
+  display: inline-block;
+  cursor: help;
+}
+.hl-stat .spark-slot svg { display: block; }
 
 /* ─── Cluster card density reduction (#2) ─────────────────────────────
    The card row now leads with count (large) + error-rate bar (visual)

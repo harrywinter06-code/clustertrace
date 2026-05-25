@@ -4,6 +4,20 @@ All notable changes to clustertrace. Format roughly follows [Keep a Changelog](h
 
 > **Renamed from `agentlog` to `clustertrace` in v0.5.0** — PyPI's name-similarity check rejected `agentlog` as too close to the existing `agentlogger` package. The new name lands the differentiator (clustering of traces) more directly anyway.
 
+## [0.14.3] — 2026-05-25
+
+### Added — smart trace titles + 14-day sparklines on the landing page
+
+Two changes that compound for daily use:
+
+**Smart trace titles.** Every Claude Code trace ships as `claude_code.interaction` or `claude_code.llm_request` — identical labels for every row in `/traces`, making the table functionally useless for finding a specific session. The list and review endpoints now derive a `display_name` from the first `user_prompt` attribute on the trace's spans (set by Claude Code when `OTEL_LOG_USER_PROMPTS=1`), truncated to ~70 chars at a word boundary, falling back to the span name when no prompt is captured. The trace-detail page H1 uses the same derivation. One SQL subquery per row, so the existing list query still runs in a single round-trip.
+
+**14-day sparklines on `/`.** Below each landing-page headline figure (Runs / Errors / Cost / Patterns) sits a tiny inline-SVG trend over the last fortnight. Tufte-style: 90×22px, no axes, faint baseline so zero-days are still legible, hover tooltip with the actual per-day numbers. New endpoint `/api/trend?days=N` (default 14, max 90) returns a complete day-by-day series with gaps filled by zero. The whole sparkline renderer is ~30 lines of vanilla JS — no chart library.
+
+Together: the dashboard now answers *"what shape of work has my week been?"* in addition to *"what's the state right now?"* — same glance, same fold, more signal.
+
+310 tests pass, lint clean.
+
 ## [0.14.2] — 2026-05-25
 
 ### Changed — headline-first pattern applied to the rest of the dashboard

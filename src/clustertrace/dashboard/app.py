@@ -118,10 +118,22 @@ async def trace_detail(request: Request, trace_id: str):
         trace = conn.execute("SELECT * FROM traces WHERE id = ?", (trace_id,)).fetchone()
         if trace is None:
             raise HTTPException(status_code=404, detail="trace not found")
+        # Pull a user-prompt-derived title so the page H1 reads
+        # "Refactor src/foo.py to use the new API" instead of
+        # "claude_code.interaction" for every Claude Code trace.
+        up_row = conn.execute(
+            "SELECT json_extract(attrs_json, '$.user_prompt') AS up "
+            "FROM spans WHERE trace_id = ? "
+            "  AND json_extract(attrs_json, '$.user_prompt') IS NOT NULL "
+            "ORDER BY started_at ASC LIMIT 1",
+            (trace_id,),
+        ).fetchone()
+    user_prompt = up_row["up"] if up_row else None
+    display_name = _smart_title(trace["name"], user_prompt)
     return _TEMPLATES.TemplateResponse(
         request,
         "trace.html",
-        {"trace_id": trace_id, "trace_name": trace["name"]},
+        {"trace_id": trace_id, "trace_name": display_name},
     )
 
 
@@ -592,7 +604,8 @@ async def api_review_expensive(
         sql_where = "started_at >= ? AND " + sql_where
         args = (cutoff,)
     sql = (
-        "SELECT id, name, started_at, ended_at, status, cost_usd, signature "
+        "SELECT id, name, started_at, ended_at, status, cost_usd, signature, "
+        f"       {_USER_PROMPT_SUBQUERY} AS user_prompt "
         f"FROM traces WHERE {sql_where} ORDER BY cost_usd DESC LIMIT ?"
     )
     args = args + (limit,)
@@ -604,6 +617,7 @@ async def api_review_expensive(
             {
                 "id": r["id"],
                 "name": r["name"],
+                "display_name": _smart_title(r["name"], r["user_prompt"]),
                 "started_at": r["started_at"],
                 "duration_ms": (
                     int((r["ended_at"] - r["started_at"]) * 1000)
@@ -1075,6 +1089,102 @@ async def api_stats():
     }
 
 
+def _smart_title(name: str | None, user_prompt: str | None, max_chars: int = 70) -> str:
+    """Pick a readable title for a trace.
+
+    Most Claude Code traces ship `claude_code.interaction` / `claude_code.llm_request`
+    as the name, which collapses every row in the trace list into the same string.
+    We prefer the first user prompt when present (Claude Code with
+    `OTEL_LOG_USER_PROMPTS=1`, or the wrap_anthropic decorator), truncated to a
+    word boundary, falling back to the span name otherwise.
+    """
+    p = (user_prompt or "").strip()
+    if p:
+        # Strip newlines + collapse whitespace so the title doesn't span lines.
+        p = " ".join(p.split())
+        if len(p) <= max_chars:
+            return p
+        # Cut at the last word boundary inside the budget.
+        cut = p[:max_chars].rsplit(" ", 1)[0]
+        return cut + "…" if cut else p[:max_chars] + "…"
+    return name or "(unnamed)"
+
+
+# SQL subquery returning the first user-prompt-shaped string we can find on a
+# trace's spans. Used by /api/traces, /api/trace/{id}, and /api/review/expensive
+# so they all surface the same readable title.
+_USER_PROMPT_SUBQUERY = """
+    (
+      SELECT
+        COALESCE(
+          json_extract(s.attrs_json, '$.user_prompt'),
+          -- Anthropic-SDK wrap path: input_json holds the messages array.
+          -- We can't json_extract a nested array cleanly without overcomplicating
+          -- the SQL, so this branch is left to a later iteration. The COALESCE
+          -- still works because the column will be NULL on that path and
+          -- _smart_title falls back to the trace name.
+          NULL
+        )
+      FROM spans s
+      WHERE s.trace_id = traces.id
+        AND json_extract(s.attrs_json, '$.user_prompt') IS NOT NULL
+      ORDER BY s.started_at ASC
+      LIMIT 1
+    )
+"""
+
+
+@app.get("/api/trend")
+async def api_trend(days: int = Query(14, ge=1, le=90)):
+    """Per-day rollups for the last N days. Powers the landing-page sparklines.
+
+    Returns a complete `days`-long series (filling missing days with zeros)
+    so the consumer doesn't have to worry about gaps. Day keys are ISO date
+    strings in the SERVER's local timezone — fine for a single-user
+    local-first tool; would need TZ-explicit handling for multi-user.
+    """
+    import time
+    from datetime import datetime, timedelta
+
+    cutoff = time.time() - days * 86400
+    with storage.connect() as c:
+        rows = c.execute(
+            "SELECT date(started_at, 'unixepoch') AS day, "
+            "       COUNT(*) AS sessions, "
+            "       SUM(CASE WHEN status='error' THEN 1 ELSE 0 END) AS errors, "
+            "       COALESCE(SUM(cost_usd), 0) AS cost, "
+            "       COUNT(DISTINCT signature) AS patterns "
+            "FROM traces WHERE started_at >= ? "
+            "GROUP BY day ORDER BY day",
+            (cutoff,),
+        ).fetchall()
+    by_day = {r["day"]: r for r in rows}
+
+    out_days: list[str] = []
+    sessions: list[int] = []
+    errors: list[int] = []
+    cost: list[float] = []
+    patterns: list[int] = []
+    today = datetime.now(tz=datetime.now().astimezone().tzinfo).date()  # local TZ, matches SQLite's date() default
+    for i in range(days - 1, -1, -1):
+        d = today - timedelta(days=i)
+        key = d.isoformat()
+        out_days.append(key)
+        row = by_day.get(key)
+        sessions.append(int(row["sessions"]) if row else 0)
+        errors.append(int(row["errors"]) if row else 0)
+        cost.append(float(row["cost"]) if row else 0.0)
+        patterns.append(int(row["patterns"]) if row else 0)
+
+    return {
+        "days": out_days,
+        "sessions": sessions,
+        "errors": errors,
+        "cost": cost,
+        "patterns": patterns,
+    }
+
+
 @app.get("/api/traces")
 async def api_traces(
     limit: int = 50,
@@ -1105,7 +1215,8 @@ async def api_traces(
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
     sql = f"""SELECT traces.id, traces.name, traces.started_at, traces.ended_at,
                      traces.status, traces.error_type, traces.error_message,
-                     traces.signature, traces.cost_usd
+                     traces.signature, traces.cost_usd,
+                     {_USER_PROMPT_SUBQUERY} AS user_prompt
               FROM traces {join_tag}
               {where_sql}
               ORDER BY traces.started_at DESC
@@ -1123,6 +1234,7 @@ async def api_traces(
             d["duration_ms"] = round((d["ended_at"] - d["started_at"]) * 1000, 1)
         else:
             d["duration_ms"] = None
+        d["display_name"] = _smart_title(d.get("name"), d.pop("user_prompt", None))
         out.append(d)
     return {"traces": out, "limit": limit, "offset": offset, "total": total}
 

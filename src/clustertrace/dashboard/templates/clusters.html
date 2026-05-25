@@ -11,18 +11,22 @@
     <div class="hl-stat">
       <span class="num" id="hl-runs">—</span>
       <span class="lbl">Runs</span>
+      <span class="spark-slot" id="spark-runs"></span>
     </div>
     <div class="hl-stat">
       <span class="num err" id="hl-errors">—</span>
       <span class="lbl" id="hl-errors-lbl">Errors</span>
+      <span class="spark-slot" id="spark-errors"></span>
     </div>
     <div class="hl-stat">
       <span class="num quiet" id="hl-cost">—</span>
       <span class="lbl">Cost</span>
+      <span class="spark-slot" id="spark-cost"></span>
     </div>
     <div class="hl-stat">
       <span class="num quiet" id="hl-patterns">—</span>
       <span class="lbl">Patterns</span>
+      <span class="spark-slot" id="spark-patterns"></span>
     </div>
   </div>
 
@@ -280,9 +284,53 @@ function openAnnotationEditor(btn) {
 document.getElementById('mode-input').addEventListener('change', () => loadClusters(true));
 document.getElementById('load-more').addEventListener('click', () => loadClusters(false));
 
+// Inline SVG sparkline. ~30 lines, no library. Tufte-style: tiny, no axes,
+// just shape. Falls flat (single horizontal line at midline) when the series
+// is empty so the layout doesn't jump.
+function sparkSvg(values, opts = {}) {
+  const w = opts.width || 90;
+  const h = opts.height || 22;
+  const stroke = opts.stroke || 'currentColor';
+  if (!values.length) {
+    return `<svg width="${w}" height="${h}"></svg>`;
+  }
+  const max = Math.max(...values, 1);
+  const min = 0;
+  const range = (max - min) || 1;
+  const n = values.length;
+  const pts = values.map((v, i) => {
+    const x = n === 1 ? w / 2 : (i / (n - 1)) * w;
+    const y = h - 2 - ((v - min) / range) * (h - 4);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  // Draw a polyline + a faint baseline so flat-zero days are still legible.
+  return `
+    <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">
+      <line x1="0" y1="${h - 1}" x2="${w}" y2="${h - 1}" stroke="currentColor" stroke-opacity="0.18" stroke-width="1"/>
+      <polyline fill="none" stroke="${stroke}" stroke-width="1.5" points="${pts}" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`;
+}
+
+async function loadTrend() {
+  try {
+    const t = await fetch('/api/trend?days=14').then(r => r.json());
+    document.getElementById('spark-runs').innerHTML = sparkSvg(t.sessions);
+    document.getElementById('spark-errors').innerHTML = sparkSvg(t.errors, { stroke: 'var(--err)' });
+    document.getElementById('spark-cost').innerHTML = sparkSvg(t.cost);
+    document.getElementById('spark-patterns').innerHTML = sparkSvg(t.patterns);
+    // Add a tooltip so hovering shows the actual 14 numbers.
+    const fmtTip = (label, vals) => `${label}: last 14 days\n` + vals.map((v, i) => `${t.days[i]}: ${v}`).join('\n');
+    document.getElementById('spark-runs').title = fmtTip('Runs', t.sessions);
+    document.getElementById('spark-errors').title = fmtTip('Errors', t.errors);
+    document.getElementById('spark-cost').title = fmtTip('Cost', t.cost.map(v => '$' + v.toFixed(4)));
+    document.getElementById('spark-patterns').title = fmtTip('Patterns', t.patterns);
+  } catch (e) { /* silent — sparklines are a nice-to-have, not load-bearing */ }
+}
+
 (async () => {
   await loadSummary();
   await loadClusters(true);
+  loadTrend();
 })();
 </script>
 

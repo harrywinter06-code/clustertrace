@@ -153,7 +153,7 @@ provider.add_span_processor(
     return `
     <tr class="${t.status === 'error' ? 'row-error' : ''}">
       <td class="muted small">${fmtTime(t.started_at)}</td>
-      <td><a href="/trace/${t.id}">${escapeHtml(t.name)}</a></td>
+      <td><a href="/trace/${t.id}">${escapeHtml(t.display_name || t.name)}</a></td>
       <td>${tagsHtml || '<span class="muted small">—</span>'}</td>
       <td><span class="badge ${t.status}">${t.status}</span></td>
       <td>${t.duration_ms != null ? t.duration_ms + ' ms' : '—'}</td>

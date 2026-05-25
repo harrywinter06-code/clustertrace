@@ -126,7 +126,7 @@ async function loadExpensive() {
       <tbody>${r.traces.map(t => `
         <tr>
           <td class="muted small">${fmtTime(t.started_at)}</td>
-          <td><a href="/trace/${t.id}">${escapeHtml(t.name || t.id.slice(0, 8))}</a></td>
+          <td><a href="/trace/${t.id}">${escapeHtml(t.display_name || t.name || t.id.slice(0, 8))}</a></td>
           <td><span class="badge ${t.status}">${escapeHtml(t.status)}</span></td>
           <td class="muted small">${fmtDuration(t.duration_ms)}</td>
           <td><b>${fmtUSD(t.cost_usd)}</b></td>
@@ -184,7 +184,7 @@ async function loadDeadEnds() {
       <tbody>${r.traces.map(t => `
         <tr>
           <td class="muted small">${fmtTime(t.started_at)}</td>
-          <td><a href="/trace/${t.id}">${escapeHtml(t.name || t.id.slice(0, 8))}</a></td>
+          <td><a href="/trace/${t.id}">${escapeHtml(t.display_name || t.name || t.id.slice(0, 8))}</a></td>
           <td>${t.stop_reason ? `<span class="badge ${t.stop_reason}">${escapeHtml(t.stop_reason)}</span>` : "<span class=\"muted small\">—</span>"}</td>
           <td class="muted small">${t.error_type ? escapeHtml(t.error_type) + ": " + escapeHtml(t.error_message) : ""}</td>
         </tr>`).join("")}</tbody>
