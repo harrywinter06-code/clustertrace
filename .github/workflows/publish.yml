@@ -15,6 +15,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # setup-uv@v6 still ships Node 20 internally; opt the whole workflow into
+  # Node 24 (which is GitHub's default after 2026-06-02 anyway).
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   build:
     name: Build wheel + sdist
