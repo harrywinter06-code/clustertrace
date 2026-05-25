@@ -121,6 +121,12 @@ Every `claude_code.interaction` becomes a trace; child `claude_code.llm_request`
 
 Limits worth knowing: clustertrace only accepts OTLP/JSON (not protobuf), which is why the helper sets `OTEL_EXPORTER_OTLP_PROTOCOL=http/json`. If you point another OTel exporter at it, do the same.
 
+## Weekly review
+
+Open `/review` for a fifteen-minute Sunday loop over your last seven days of usage. Five questions answered with SQL over your own data: top expensive sessions, cache hit rate by pattern, the pattern you ran most often, sessions that dead-ended on `max_tokens` / `refusal` / errors, and a free-text "one change for next week" you persist and mark `kept` / `partial` / `missed` the following Sunday.
+
+The point is not to optimise &mdash; it's to pick one specific change per week and check whether you actually made it. Run for four weeks and you have a number on whether your prompting got more efficient.
+
 ## MCP server
 
 `clustertrace mcp` exposes traces, clusters, and search through the Model Context Protocol, so any MCP-capable editor (Claude Code, Cursor, Continue) can ask "show me a failing trace of this pattern" or "diff this trace against a successful one" as a single command.

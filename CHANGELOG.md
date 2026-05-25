@@ -4,6 +4,26 @@ All notable changes to clustertrace. Format roughly follows [Keep a Changelog](h
 
 > **Renamed from `agentlog` to `clustertrace` in v0.5.0** — PyPI's name-similarity check rejected `agentlog` as too close to the existing `agentlogger` package. The new name lands the differentiator (clustering of traces) more directly anyway.
 
+## [0.11.0] — 2026-05-25
+
+### Added — `/review` page (weekly self-review)
+
+A new dashboard page that turns clustertrace into a personal-productivity feedback loop instead of just a debugger. The pitch: fifteen minutes every Sunday, five questions, pick **one** concrete change for next week.
+
+The page renders five sections, all driven by SQL aggregates over your existing trace data:
+
+1. **Top five most expensive sessions** in the window — usually surface either underspecified questions, sessions that went in circles, or over-bundled prompts.
+2. **Cache hit rate per pattern** — patterns with a low rate are usually prompts whose preamble varies session-to-session. The fix is a template.
+3. **Your most-run pattern** — the template most worth tightening; saving compounds.
+4. **Sessions that dead-ended** (`max_tokens` / `refusal` / `pause_turn` stop reasons, plus any `status=error`).
+5. **One change for next week** — a free-text input persisted to a new `review_commitments` table. Each row gets a follow-up "kept / partial / missed" outcome you mark the next time you do a review.
+
+Window selector: 7d / 30d / all-time. Nav adds "Review" as a primary item alongside Patterns, Traces, Search.
+
+Schema migration v5: `review_commitments(id, created_at, window_label, text, outcome)`.
+
+Eight new tests cover each endpoint and edge cases (empty commitment, unknown outcome value, zero-token patterns filtered from cache rate).
+
 ## [0.10.1] — 2026-05-25
 
 ### Added — OTLP/HTTP/protobuf decoding

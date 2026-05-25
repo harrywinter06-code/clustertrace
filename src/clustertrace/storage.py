@@ -155,6 +155,20 @@ _MIGRATIONS: list[str] = [
     CREATE INDEX IF NOT EXISTS idx_cluster_assertions_sig_hash
         ON cluster_assertions(sig_hash);
     """,
+    # v5 — weekly self-review commitments. Each row is one "next week I will X"
+    # the user wrote during a /review session. Not joined to any trace; the
+    # value is the user's own text plus a timestamp.
+    """
+    CREATE TABLE IF NOT EXISTS review_commitments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at REAL NOT NULL,
+        window_label TEXT NOT NULL,      -- e.g. "7d", "30d" -- which window this commitment was made against
+        text TEXT NOT NULL,
+        outcome TEXT                     -- filled in next week: did the change land?
+    );
+    CREATE INDEX IF NOT EXISTS idx_review_commitments_created_at
+        ON review_commitments(created_at DESC);
+    """,
 ]
 _SCHEMA_VERSION = len(_MIGRATIONS)
 

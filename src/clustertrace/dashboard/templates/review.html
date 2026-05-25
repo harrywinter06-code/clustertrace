@@ -1,0 +1,363 @@
+{% extends "base.html" %}
+{% block title %}Review — clustertrace{% endblock %}
+{% block content %}
+<section>
+  <div class="hero-card">
+    <h1>Weekly review</h1>
+    <p>Five questions to answer in fifteen minutes. The numbers below are pulled from your traces. The point is not to optimise &mdash; it's to pick <b>one</b> specific change you'll make next week, and check next Sunday whether you actually made it.</p>
+  </div>
+
+  <div class="review-controls" id="review-controls">
+    <span class="muted small">window:</span>
+    <button class="btn-window is-active" data-window="7d">7 days</button>
+    <button class="btn-window" data-window="30d">30 days</button>
+    <button class="btn-window" data-window="all">all time</button>
+    <span class="muted small" id="review-summary" style="margin-left: 14px;">loading&hellip;</span>
+  </div>
+
+  <div class="review-card">
+    <h2>1. Top five most expensive sessions</h2>
+    <p class="muted small">Why &mdash; usually one of: an underspecified question, a session that went in circles, or too much bundled into one prompt. Name the cause for each in one sentence.</p>
+    <div id="r-expensive" class="muted">loading&hellip;</div>
+  </div>
+
+  <div class="review-card">
+    <h2>2. Cache hit rate by pattern</h2>
+    <p class="muted small">Patterns with a low cache rate are usually prompts whose preamble varies session-to-session. The fix is a template.</p>
+    <div id="r-cache" class="muted">loading&hellip;</div>
+  </div>
+
+  <div class="review-card">
+    <h2>3. Your most-run pattern</h2>
+    <p class="muted small">Whatever it is, that template is the one most worth tightening &mdash; the saving compounds.</p>
+    <div id="r-top" class="muted">loading&hellip;</div>
+  </div>
+
+  <div class="review-card">
+    <h2>4. Sessions that dead-ended</h2>
+    <p class="muted small"><code>max_tokens</code> / <code>refusal</code> / <code>pause_turn</code> stop reasons, plus any session with status <code>error</code>. These are the failures you'd otherwise scroll past.</p>
+    <div id="r-deadends" class="muted">loading&hellip;</div>
+  </div>
+
+  <div class="review-card">
+    <h2>5. One change for next week</h2>
+    <p class="muted small">Concrete, not aspirational. Not &ldquo;be better at prompting&rdquo; &mdash; something like <i>&ldquo;use plan-mode whenever I'm touching three or more files&rdquo;</i> or <i>&ldquo;never start a new task in the same Claude Code session as an old one&rdquo;</i>.</p>
+    <div class="commitment-input">
+      <textarea id="commitment-text" rows="3" maxlength="2000" placeholder="This week I will&hellip;"></textarea>
+      <button id="commitment-save" class="btn btn-primary">Save</button>
+    </div>
+    <h3 style="margin-top: 18px; font-size: 13px;">Past commitments</h3>
+    <div id="r-commitments" class="muted small">loading&hellip;</div>
+  </div>
+</section>
+
+<script>
+let WINDOW = "7d";
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+}
+function fmtUSD(v) {
+  if (v == null) return "—";
+  return "$" + (v < 0.01 ? v.toFixed(4) : v.toFixed(2));
+}
+function fmtTime(ts) {
+  if (!ts) return "";
+  return new Date(ts * 1000).toLocaleString();
+}
+function fmtPct(v) {
+  if (v == null || isNaN(v)) return "—";
+  return (v * 100).toFixed(0) + "%";
+}
+function fmtDuration(ms) {
+  if (ms == null) return "—";
+  if (ms < 1000) return ms + " ms";
+  if (ms < 60000) return (ms / 1000).toFixed(1) + " s";
+  return Math.floor(ms / 60000) + "m " + Math.floor((ms % 60000) / 1000) + "s";
+}
+
+async function loadSummary() {
+  const r = await fetch(`/api/review/summary?window=${WINDOW}`).then(r => r.json());
+  const wl = WINDOW === "all" ? "all time" : `last ${WINDOW.replace("d", " days")}`;
+  document.getElementById("review-summary").innerHTML =
+    `<b>${r.sessions}</b> sessions &middot; <b>${fmtUSD(r.total_cost_usd)}</b> total &middot; ${wl}`;
+}
+
+async function loadExpensive() {
+  const r = await fetch(`/api/review/expensive?window=${WINDOW}&limit=5`).then(r => r.json());
+  const el = document.getElementById("r-expensive");
+  if (!r.traces.length) {
+    el.innerHTML = "<p class=\"muted\">No sessions with cost data in this window.</p>";
+    return;
+  }
+  el.innerHTML = `
+    <table class="review-table">
+      <thead><tr><th>When</th><th>Session</th><th>Status</th><th>Duration</th><th>Cost</th></tr></thead>
+      <tbody>${r.traces.map(t => `
+        <tr>
+          <td class="muted small">${fmtTime(t.started_at)}</td>
+          <td><a href="/trace/${t.id}">${escapeHtml(t.name || t.id.slice(0, 8))}</a></td>
+          <td><span class="badge ${t.status}">${escapeHtml(t.status)}</span></td>
+          <td class="muted small">${fmtDuration(t.duration_ms)}</td>
+          <td><b>${fmtUSD(t.cost_usd)}</b></td>
+        </tr>`).join("")}</tbody>
+    </table>`;
+}
+
+async function loadCacheRate() {
+  const r = await fetch(`/api/review/cache-rate?window=${WINDOW}&limit=10`).then(r => r.json());
+  const el = document.getElementById("r-cache");
+  if (!r.patterns.length) {
+    el.innerHTML = "<p class=\"muted\">No LLM-call token data in this window. Patterns need <code>cache_read_tokens</code> and <code>input_tokens</code> on llm_call spans (Anthropic SDK + Claude Code OTel both emit these).</p>";
+    return;
+  }
+  el.innerHTML = `
+    <table class="review-table">
+      <thead><tr><th>Pattern</th><th>Runs</th><th>Cache hit</th><th>Tokens</th></tr></thead>
+      <tbody>${r.patterns.map(p => {
+        const ratePct = p.cache_hit_rate;
+        const cls = ratePct >= 0.7 ? "good" : ratePct >= 0.4 ? "mid" : "low";
+        return `
+          <tr>
+            <td class="muted small mono">${escapeHtml((p.signature || "").slice(0, 60))}</td>
+            <td>${p.run_count}</td>
+            <td><span class="cache-rate ${cls}">${fmtPct(ratePct)}</span></td>
+            <td class="muted small">${p.cache_read_tokens.toLocaleString()} cached / ${p.input_tokens.toLocaleString()} new</td>
+          </tr>`;
+      }).join("")}</tbody>
+    </table>`;
+}
+
+async function loadTopPattern() {
+  const r = await fetch(`/api/review/top-pattern?window=${WINDOW}`).then(r => r.json());
+  const el = document.getElementById("r-top");
+  if (!r.pattern) {
+    el.innerHTML = "<p class=\"muted\">No patterns in this window yet.</p>";
+    return;
+  }
+  el.innerHTML = `
+    <p>You ran the same execution pattern <b>${r.pattern.run_count}</b> times this window.</p>
+    <p class="muted small mono">${escapeHtml((r.pattern.signature || "").slice(0, 200))}</p>
+    <p><a href="/trace/${r.pattern.sample_trace_id}">Sample trace &rarr;</a></p>`;
+}
+
+async function loadDeadEnds() {
+  const r = await fetch(`/api/review/dead-ends?window=${WINDOW}&limit=10`).then(r => r.json());
+  const el = document.getElementById("r-deadends");
+  if (!r.traces.length) {
+    el.innerHTML = "<p class=\"muted good\">No dead-ends in this window. (Either none happened, or your stop_reason isn't being captured &mdash; both are possible.)</p>";
+    return;
+  }
+  el.innerHTML = `
+    <table class="review-table">
+      <thead><tr><th>When</th><th>Session</th><th>Stop reason</th><th>Error</th></tr></thead>
+      <tbody>${r.traces.map(t => `
+        <tr>
+          <td class="muted small">${fmtTime(t.started_at)}</td>
+          <td><a href="/trace/${t.id}">${escapeHtml(t.name || t.id.slice(0, 8))}</a></td>
+          <td>${t.stop_reason ? `<span class="badge ${t.stop_reason}">${escapeHtml(t.stop_reason)}</span>` : "<span class=\"muted small\">—</span>"}</td>
+          <td class="muted small">${t.error_type ? escapeHtml(t.error_type) + ": " + escapeHtml(t.error_message) : ""}</td>
+        </tr>`).join("")}</tbody>
+    </table>`;
+}
+
+async function loadCommitments() {
+  const r = await fetch("/api/review/commitments?limit=12").then(r => r.json());
+  const el = document.getElementById("r-commitments");
+  if (!r.commitments.length) {
+    el.innerHTML = "<p class=\"muted\">No commitments yet. Write your first above &mdash; come back next week and mark whether you kept it.</p>";
+    return;
+  }
+  el.innerHTML = r.commitments.map(c => {
+    const when = new Date(c.created_at * 1000).toLocaleDateString();
+    const outcomeBadge = c.outcome ? `<span class="badge outcome-${c.outcome}">${c.outcome}</span>` : "";
+    const buttons = c.outcome ? "" : `
+      <span class="commitment-actions">
+        <button class="btn btn-tiny" data-id="${c.id}" data-outcome="kept">kept</button>
+        <button class="btn btn-tiny" data-id="${c.id}" data-outcome="partial">partial</button>
+        <button class="btn btn-tiny" data-id="${c.id}" data-outcome="missed">missed</button>
+      </span>`;
+    return `
+      <div class="commitment-row">
+        <span class="muted small">${when}</span>
+        <span class="commitment-text">${escapeHtml(c.text)}</span>
+        ${outcomeBadge}
+        ${buttons}
+      </div>`;
+  }).join("");
+
+  document.querySelectorAll(".commitment-actions button").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      const id = e.currentTarget.dataset.id;
+      const outcome = e.currentTarget.dataset.outcome;
+      await fetch(`/api/review/commitments/${id}/outcome`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({outcome}),
+      });
+      await loadCommitments();
+    });
+  });
+}
+
+async function saveCommitment() {
+  const text = document.getElementById("commitment-text").value.trim();
+  if (!text) return;
+  const r = await fetch("/api/review/commitments", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({text, window: WINDOW}),
+  });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    alert("save failed: " + (e.error || r.statusText));
+    return;
+  }
+  document.getElementById("commitment-text").value = "";
+  await loadCommitments();
+}
+
+async function refreshAll() {
+  loadSummary();
+  loadExpensive();
+  loadCacheRate();
+  loadTopPattern();
+  loadDeadEnds();
+  loadCommitments();
+}
+
+document.querySelectorAll(".btn-window").forEach(btn => {
+  btn.addEventListener("click", (e) => {
+    document.querySelectorAll(".btn-window").forEach(b => b.classList.remove("is-active"));
+    e.currentTarget.classList.add("is-active");
+    WINDOW = e.currentTarget.dataset.window;
+    refreshAll();
+  });
+});
+document.getElementById("commitment-save").addEventListener("click", saveCommitment);
+
+refreshAll();
+</script>
+
+<style>
+.review-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 18px;
+}
+.btn-window {
+  background: var(--panel-2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.btn-window:hover { color: var(--fg); }
+.btn-window.is-active {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+
+.review-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+.review-card h2 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.review-card > p.muted.small {
+  margin: 0 0 10px;
+  max-width: 760px;
+}
+
+.review-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.review-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.review-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--panel-2);
+  vertical-align: top;
+}
+.review-table .mono {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+}
+
+.cache-rate { font-weight: 600; }
+.cache-rate.good { color: #3a9b3a; }
+.cache-rate.mid  { color: var(--warn); }
+.cache-rate.low  { color: var(--err); }
+
+.commitment-input {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.commitment-input textarea {
+  flex: 1;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.commitment-input textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.commitment-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--panel-2);
+}
+.commitment-row:last-child { border-bottom: none; }
+.commitment-text { flex: 1; }
+.commitment-actions { display: inline-flex; gap: 4px; }
+.btn-tiny {
+  background: var(--panel-2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.btn-tiny:hover { color: var(--fg); }
+
+.badge.outcome-kept    { background: #224422; color: #bce8bc; border: 1px solid #2b6e2b; }
+.badge.outcome-partial { background: #443322; color: #ffd5a0; border: 1px solid #aa7733; }
+.badge.outcome-missed  { background: #442222; color: #ffb0b0; border: 1px solid #993333; }
+.badge.max_tokens, .badge.refusal, .badge.pause_turn {
+  background: #443322; color: #ffd5a0; border: 1px solid #aa7733;
+  font-size: 11px; padding: 1px 6px; border-radius: 10px;
+}
+.muted.good { color: #3a9b3a; }
+</style>
+{% endblock %}

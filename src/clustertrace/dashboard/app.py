@@ -99,6 +99,276 @@ async def drift_page(request: Request):
     return _TEMPLATES.TemplateResponse(request, "drift.html", {})
 
 
+@app.get("/review", response_class=HTMLResponse)
+async def review_page(request: Request):
+    return _TEMPLATES.TemplateResponse(request, "review.html", {})
+
+
+# ---------------------------------------------------------------------------
+# Weekly review API
+# ---------------------------------------------------------------------------
+
+_WINDOW_SECONDS = {
+    "7d": 7 * 86400,
+    "30d": 30 * 86400,
+    "all": None,
+}
+
+
+def _window_cutoff(window: str) -> float | None:
+    """Convert a window label into an `started_at` cutoff (epoch seconds)."""
+    import time
+
+    secs = _WINDOW_SECONDS.get(window)
+    if secs is None:
+        return None
+    return time.time() - secs
+
+
+@app.get("/api/review/summary")
+async def api_review_summary(window: str = Query("7d", pattern="^(7d|30d|all)$")):
+    """Headline numbers for the review header: session count, total cost, window."""
+    cutoff = _window_cutoff(window)
+    with storage.connect() as c:
+        if cutoff is None:
+            row = c.execute(
+                "SELECT COUNT(*) AS sessions, COALESCE(SUM(cost_usd), 0) AS cost FROM traces"
+            ).fetchone()
+        else:
+            row = c.execute(
+                "SELECT COUNT(*) AS sessions, COALESCE(SUM(cost_usd), 0) AS cost "
+                "FROM traces WHERE started_at >= ?",
+                (cutoff,),
+            ).fetchone()
+    return {
+        "window": window,
+        "sessions": int(row["sessions"]),
+        "total_cost_usd": float(row["cost"]),
+    }
+
+
+@app.get("/api/review/expensive")
+async def api_review_expensive(
+    window: str = Query("7d", pattern="^(7d|30d|all)$"),
+    limit: int = Query(5, ge=1, le=50),
+):
+    """Q1: top sessions by cost in the window."""
+    cutoff = _window_cutoff(window)
+    sql_where = "cost_usd IS NOT NULL"
+    args: tuple = ()
+    if cutoff is not None:
+        sql_where = "started_at >= ? AND " + sql_where
+        args = (cutoff,)
+    sql = (
+        "SELECT id, name, started_at, ended_at, status, cost_usd, signature "
+        f"FROM traces WHERE {sql_where} ORDER BY cost_usd DESC LIMIT ?"
+    )
+    args = args + (limit,)
+    with storage.connect() as c:
+        rows = c.execute(sql, args).fetchall()
+    return {
+        "window": window,
+        "traces": [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "started_at": r["started_at"],
+                "duration_ms": (
+                    int((r["ended_at"] - r["started_at"]) * 1000)
+                    if r["ended_at"] is not None
+                    else None
+                ),
+                "status": r["status"],
+                "cost_usd": float(r["cost_usd"] or 0.0),
+                "signature": r["signature"],
+            }
+            for r in rows
+        ],
+    }
+
+
+@app.get("/api/review/cache-rate")
+async def api_review_cache_rate(
+    window: str = Query("7d", pattern="^(7d|30d|all)$"),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Q2: cache hit rate per pattern.
+
+    rate = sum(cache_read_tokens) / sum(input_tokens + cache_read_tokens) across
+    all llm_call spans of all traces sharing a signature in the window.
+    Patterns with zero LLM-call tokens are omitted (no signal to read).
+    """
+    cutoff = _window_cutoff(window)
+    sql_where = "s.kind = 'llm_call'"
+    args: tuple = ()
+    if cutoff is not None:
+        sql_where += " AND t.started_at >= ?"
+        args = (cutoff,)
+    sql = (
+        "SELECT t.signature AS signature, "
+        "       COUNT(DISTINCT t.id) AS run_count, "
+        "       COALESCE(SUM(CAST(json_extract(s.attrs_json, '$.cache_read_tokens') AS INTEGER)), 0) AS cache_read, "
+        "       COALESCE(SUM(CAST(json_extract(s.attrs_json, '$.input_tokens') AS INTEGER)), 0) AS uncached_input "
+        "FROM traces t JOIN spans s ON s.trace_id = t.id "
+        f"WHERE {sql_where} "
+        "GROUP BY t.signature "
+        "HAVING (cache_read + uncached_input) > 0 "
+        "ORDER BY run_count DESC LIMIT ?"
+    )
+    args = args + (limit,)
+    with storage.connect() as c:
+        rows = c.execute(sql, args).fetchall()
+    out = []
+    for r in rows:
+        denom = (r["cache_read"] or 0) + (r["uncached_input"] or 0)
+        rate = (r["cache_read"] or 0) / denom if denom > 0 else 0.0
+        out.append(
+            {
+                "signature": r["signature"] or "(no signature)",
+                "run_count": int(r["run_count"]),
+                "cache_read_tokens": int(r["cache_read"] or 0),
+                "input_tokens": int(r["uncached_input"] or 0),
+                "cache_hit_rate": rate,
+            }
+        )
+    return {"window": window, "patterns": out}
+
+
+@app.get("/api/review/top-pattern")
+async def api_review_top_pattern(window: str = Query("7d", pattern="^(7d|30d|all)$")):
+    """Q3: most-frequent pattern in the window + a sample trace id."""
+    cutoff = _window_cutoff(window)
+    sql_where = "signature IS NOT NULL AND signature <> ''"
+    args: tuple = ()
+    if cutoff is not None:
+        sql_where += " AND started_at >= ?"
+        args = (cutoff,)
+    sql = (
+        "SELECT signature, COUNT(*) AS run_count, "
+        "       (SELECT id FROM traces t2 WHERE t2.signature = t.signature "
+        f"        AND t2.started_at >= COALESCE(?, 0) ORDER BY t2.started_at DESC LIMIT 1) AS sample_id "
+        f"FROM traces t WHERE {sql_where} "
+        "GROUP BY signature ORDER BY run_count DESC LIMIT 1"
+    )
+    args = (cutoff if cutoff is not None else 0,) + args
+    with storage.connect() as c:
+        row = c.execute(sql, args).fetchone()
+    if row is None or not row["signature"]:
+        return {"window": window, "pattern": None}
+    return {
+        "window": window,
+        "pattern": {
+            "signature": row["signature"],
+            "run_count": int(row["run_count"]),
+            "sample_trace_id": row["sample_id"],
+        },
+    }
+
+
+@app.get("/api/review/dead-ends")
+async def api_review_dead_ends(
+    window: str = Query("7d", pattern="^(7d|30d|all)$"),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Q4: sessions that hit max_tokens / refusal / pause_turn, or status=error."""
+    cutoff = _window_cutoff(window)
+    where = "(t.status = 'error' OR EXISTS (SELECT 1 FROM spans s2 WHERE s2.trace_id = t.id AND s2.kind = 'llm_call' AND json_extract(s2.attrs_json, '$.stop_reason') IN ('max_tokens', 'refusal', 'pause_turn')))"
+    args: tuple = ()
+    if cutoff is not None:
+        where = "t.started_at >= ? AND " + where
+        args = (cutoff,)
+    sql = (
+        "SELECT t.id, t.name, t.started_at, t.status, t.error_type, t.error_message, "
+        "       (SELECT json_extract(s.attrs_json, '$.stop_reason') FROM spans s "
+        "        WHERE s.trace_id = t.id AND s.kind = 'llm_call' "
+        "        AND json_extract(s.attrs_json, '$.stop_reason') IN ('max_tokens', 'refusal', 'pause_turn') "
+        "        LIMIT 1) AS stop_reason "
+        f"FROM traces t WHERE {where} "
+        "ORDER BY t.started_at DESC LIMIT ?"
+    )
+    args = args + (limit,)
+    with storage.connect() as c:
+        rows = c.execute(sql, args).fetchall()
+    return {
+        "window": window,
+        "traces": [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "started_at": r["started_at"],
+                "status": r["status"],
+                "error_type": r["error_type"],
+                "error_message": (r["error_message"] or "")[:200],
+                "stop_reason": r["stop_reason"],
+            }
+            for r in rows
+        ],
+    }
+
+
+@app.get("/api/review/commitments")
+async def api_review_commitments_list(limit: int = Query(20, ge=1, le=200)):
+    """Past commitments, newest first."""
+    with storage.connect() as c:
+        rows = c.execute(
+            "SELECT id, created_at, window_label, text, outcome "
+            "FROM review_commitments ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return {
+        "commitments": [
+            {
+                "id": r["id"],
+                "created_at": r["created_at"],
+                "window_label": r["window_label"],
+                "text": r["text"],
+                "outcome": r["outcome"],
+            }
+            for r in rows
+        ]
+    }
+
+
+@app.post("/api/review/commitments")
+async def api_review_commitments_add(request: Request):
+    """Add a new commitment. Body: {"text": "...", "window": "7d"}."""
+    import time
+
+    payload = await request.json()
+    text = (payload.get("text") or "").strip()
+    window = payload.get("window") or "7d"
+    if not text:
+        raise HTTPException(status_code=400, detail="text required")
+    if len(text) > 2000:
+        raise HTTPException(status_code=400, detail="text too long (max 2000 chars)")
+    if window not in _WINDOW_SECONDS:
+        window = "7d"
+    with storage.connect() as c:
+        cur = c.execute(
+            "INSERT INTO review_commitments (created_at, window_label, text) VALUES (?, ?, ?)",
+            (time.time(), window, text),
+        )
+        new_id = cur.lastrowid
+    return {"id": new_id, "text": text, "window_label": window}
+
+
+@app.post("/api/review/commitments/{commitment_id}/outcome")
+async def api_review_commitment_outcome(commitment_id: int, request: Request):
+    """Mark whether a prior commitment landed. Body: {"outcome": "kept" | "missed" | "partial"}."""
+    payload = await request.json()
+    outcome = (payload.get("outcome") or "").strip().lower()
+    if outcome not in ("kept", "missed", "partial", ""):
+        raise HTTPException(status_code=400, detail="outcome must be kept|missed|partial|''")
+    with storage.connect() as c:
+        cur = c.execute(
+            "UPDATE review_commitments SET outcome = ? WHERE id = ?",
+            (outcome or None, commitment_id),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="commitment not found")
+    return {"id": commitment_id, "outcome": outcome or None}
+
+
 @app.get("/api/cluster-drift")
 async def api_cluster_drift(window: str = "24h", compare: str = "24h"):
     """Cluster failure-rate change between two adjacent time windows.
