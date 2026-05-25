@@ -1,0 +1,442 @@
+{% extends "base.html" %}
+{% block title %}Prompt help — clustertrace{% endblock %}
+{% block content %}
+<section>
+  <div class="hero-card">
+    <h1>Prompt help</h1>
+    <p>Three things on one page: <b>patterns from your data</b> (compare what worked vs what dead-ended), <b>critique a draft</b> you paste in, and a <b>template library</b> for the prompts you keep reusing. Everything runs locally on heuristics; the "deepen with Claude" button uses your Anthropic API key when you want a sharper read.</p>
+  </div>
+
+  <div class="prompts-tabs">
+    <button class="prompts-tab is-active" data-tab="patterns">Patterns from your data</button>
+    <button class="prompts-tab" data-tab="critique">Critique a draft</button>
+    <button class="prompts-tab" data-tab="templates">Templates</button>
+  </div>
+
+  <!-- ============ PATTERNS TAB ============ -->
+  <div class="prompts-panel is-active" data-panel="patterns">
+    <div class="review-controls">
+      <span class="muted small">window:</span>
+      <button class="btn-window is-active" data-window="7d">7 days</button>
+      <button class="btn-window" data-window="30d">30 days</button>
+      <button class="btn-window" data-window="all">all time</button>
+      <button id="patterns-deepen" class="btn btn-deepen" style="margin-left: auto;" title="Send the corpus to Anthropic for a sharper read. Uses your ANTHROPIC_API_KEY. Haiku by default.">Deepen with Claude →</button>
+    </div>
+    <div class="review-card">
+      <h2>Heuristic prevalence — succeeded vs dead-ended</h2>
+      <p class="muted small">Heuristics sorted by how strongly they discriminate the two corpora. Big positive delta = your successful prompts have this much more often than your dead-ends; that's a signal to repeat the habit. Big negative delta = the opposite, a habit to drop.</p>
+      <div id="patterns-out" class="muted">loading&hellip;</div>
+    </div>
+    <div class="review-card" id="patterns-deepen-card" style="display:none;">
+      <h2>Claude's read</h2>
+      <div id="patterns-deepen-out" class="muted small">…</div>
+    </div>
+  </div>
+
+  <!-- ============ CRITIQUE TAB ============ -->
+  <div class="prompts-panel" data-panel="critique">
+    <div class="review-card">
+      <h2>Paste a prompt to lint</h2>
+      <textarea id="critique-input" rows="8" placeholder="Paste the prompt you're about to send to Claude (or any other LLM)..."></textarea>
+      <div style="display:flex; gap:8px; margin-top:8px; flex-wrap: wrap;">
+        <button id="critique-run" class="btn btn-primary">Lint</button>
+        <button id="critique-deepen" class="btn btn-deepen">Deepen with Claude →</button>
+        <span id="critique-meta" class="muted small" style="margin-left:auto; align-self:center;"></span>
+      </div>
+    </div>
+    <div class="review-card" id="critique-out-card" style="display:none;">
+      <h2>Findings</h2>
+      <div id="critique-out" class="muted">…</div>
+    </div>
+    <div class="review-card" id="critique-deepen-card" style="display:none;">
+      <h2>Claude's critique</h2>
+      <div id="critique-deepen-out" class="muted small">…</div>
+    </div>
+  </div>
+
+  <!-- ============ TEMPLATES TAB ============ -->
+  <div class="prompts-panel" data-panel="templates">
+    <div class="review-card">
+      <h2>New template</h2>
+      <input id="tpl-name" type="text" placeholder="Short name (e.g. 'PR description from diff')" />
+      <textarea id="tpl-body" rows="6" placeholder="Template body. Use {placeholders} for things you'll swap on each use." style="margin-top:6px;"></textarea>
+      <input id="tpl-tags" type="text" placeholder="Optional tags (comma-separated)" style="margin-top:6px;"/>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button id="tpl-save" class="btn btn-primary">Save template</button>
+        <span id="tpl-edit-hint" class="muted small" style="align-self:center;"></span>
+      </div>
+    </div>
+    <div class="review-card">
+      <h2>Saved templates</h2>
+      <div id="tpl-list" class="muted small">loading&hellip;</div>
+    </div>
+  </div>
+</section>
+
+<script>
+let PATTERNS_WINDOW = "7d";
+let PATTERNS_DATA = null;
+let EDITING_TEMPLATE_ID = null;
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+}
+function fmtPct(v) { return v == null ? "—" : (v * 100).toFixed(0) + "%"; }
+function fmtSignedPct(v) {
+  if (v == null) return "—";
+  const sign = v > 0 ? "+" : v < 0 ? "−" : "";
+  return sign + Math.abs(v * 100).toFixed(0) + "%";
+}
+
+// Tab switcher ---------------------------------------------------------------
+document.querySelectorAll(".prompts-tab").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".prompts-tab").forEach(b => b.classList.remove("is-active"));
+    document.querySelectorAll(".prompts-panel").forEach(p => p.classList.remove("is-active"));
+    btn.classList.add("is-active");
+    document.querySelector(`.prompts-panel[data-panel="${btn.dataset.tab}"]`).classList.add("is-active");
+  });
+});
+
+// ============ PATTERNS TAB =================================================
+document.querySelectorAll(".btn-window").forEach(btn => {
+  btn.addEventListener("click", e => {
+    document.querySelectorAll(".btn-window").forEach(b => b.classList.remove("is-active"));
+    e.currentTarget.classList.add("is-active");
+    PATTERNS_WINDOW = e.currentTarget.dataset.window;
+    loadPatterns();
+  });
+});
+
+async function loadPatterns() {
+  const el = document.getElementById("patterns-out");
+  el.innerHTML = "<span class=\"muted\">loading…</span>";
+  const r = await fetch(`/api/prompts/patterns?window=${PATTERNS_WINDOW}`).then(r => r.json());
+  PATTERNS_DATA = r;
+  if (!r.succeeded_count && !r.dead_ended_count) {
+    el.innerHTML = `<p class="muted">No traces with extractable prompts in this window. clustertrace pulls prompts from either <code>user_prompt</code> span attributes (Claude Code with <code>OTEL_LOG_USER_PROMPTS=1</code>) or the last user message in <code>llm_call</code> spans' <code>input_json</code> (Anthropic / OpenAI SDK wrapper). Once you've run a few sessions, prevalence numbers appear here.</p>`;
+    return;
+  }
+  const rows = r.rows.map(row => {
+    const d = row.delta;
+    const cls = Math.abs(d) >= 0.20 ? (d > 0 ? "delta-good" : "delta-bad") : "delta-mid";
+    return `
+      <tr>
+        <td>${escapeHtml(row.label)}</td>
+        <td>${fmtPct(row.succeeded_rate)}</td>
+        <td>${fmtPct(row.dead_ended_rate)}</td>
+        <td class="${cls}"><b>${fmtSignedPct(d)}</b></td>
+      </tr>`;
+  }).join("");
+  el.innerHTML = `
+    <p class="muted small">${r.succeeded_count} succeeded session(s) &middot; ${r.dead_ended_count} dead-ended session(s) over the last ${PATTERNS_WINDOW === "all" ? "all time" : PATTERNS_WINDOW.replace("d", " days")}.</p>
+    <table class="review-table">
+      <thead><tr><th>Heuristic</th><th>Succeeded</th><th>Dead-ended</th><th>Delta</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+document.getElementById("patterns-deepen").addEventListener("click", async () => {
+  const card = document.getElementById("patterns-deepen-card");
+  const out = document.getElementById("patterns-deepen-out");
+  card.style.display = "";
+  out.innerHTML = "<span class=\"muted\">asking Claude…</span>";
+  // Re-fetch the raw corpora so we can ship them up. Simpler than caching across loads.
+  const r = await fetch(`/api/prompts/patterns?window=${PATTERNS_WINDOW}&raw=1`).then(r => r.json()).catch(() => null);
+  // Endpoint doesn't ship raw text; we re-query traces from the dashboard side via the existing API
+  // would balloon this file. So: pass a summary string instead.
+  const summary = (PATTERNS_DATA && PATTERNS_DATA.rows) ? PATTERNS_DATA.rows.map(rr =>
+    `${rr.label}: ${(rr.succeeded_rate*100).toFixed(0)}% in succeeded vs ${(rr.dead_ended_rate*100).toFixed(0)}% in dead-ended (delta ${(rr.delta*100).toFixed(0)}pp)`
+  ).join("\n") : "(no data)";
+  const body = {
+    kind: "patterns",
+    payload: {
+      succeeded: [summary],
+      dead_ended: [`Counts: ${PATTERNS_DATA?.succeeded_count || 0} succeeded vs ${PATTERNS_DATA?.dead_ended_count || 0} dead-ended.`],
+    },
+  };
+  const resp = await fetch("/api/prompts/llm-deepen", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const e = await resp.json().catch(() => ({}));
+    out.innerHTML = `<span class="err">${escapeHtml(e.error || resp.statusText)}</span>${e.hint ? `<br><span class="muted small">${escapeHtml(e.hint)}</span>` : ""}`;
+    return;
+  }
+  const data = await resp.json();
+  out.innerHTML = `<pre class="llm-text">${escapeHtml(data.text)}</pre><div class="muted small">${data.model} &middot; ${data.input_tokens || "?"} in / ${data.output_tokens || "?"} out</div>`;
+});
+
+// ============ CRITIQUE TAB =================================================
+async function runCritique() {
+  const text = document.getElementById("critique-input").value;
+  if (!text.trim()) return;
+  const r = await fetch("/api/prompts/critique", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({text}),
+  });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    document.getElementById("critique-out-card").style.display = "";
+    document.getElementById("critique-out").innerHTML = `<span class="err">${escapeHtml(e.detail || r.statusText)}</span>`;
+    return;
+  }
+  const data = await r.json();
+  document.getElementById("critique-meta").textContent = `${data.char_count} chars · ${data.word_count} words`;
+  const card = document.getElementById("critique-out-card");
+  card.style.display = "";
+  const out = document.getElementById("critique-out");
+  if (!data.findings.length) {
+    out.innerHTML = `<p class="muted good">No heuristic findings. The prompt clears the local lint; consider <i>Deepen with Claude</i> for a sharper read.</p>`;
+    return;
+  }
+  out.innerHTML = `<ul class="finding-list">${data.findings.map(f => `
+    <li class="finding ${f.polarity} sev-${f.severity}">
+      <span class="finding-tag">${f.polarity}</span>
+      <span class="finding-sev">${f.severity}</span>
+      <span class="finding-msg">${escapeHtml(f.message)}</span>
+    </li>`).join("")}</ul>`;
+}
+
+document.getElementById("critique-run").addEventListener("click", runCritique);
+document.getElementById("critique-input").addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") runCritique();
+});
+
+document.getElementById("critique-deepen").addEventListener("click", async () => {
+  const text = document.getElementById("critique-input").value;
+  if (!text.trim()) { alert("paste a prompt first"); return; }
+  const card = document.getElementById("critique-deepen-card");
+  const out = document.getElementById("critique-deepen-out");
+  card.style.display = "";
+  out.innerHTML = "<span class=\"muted\">asking Claude…</span>";
+  const r = await fetch("/api/prompts/llm-deepen", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({kind: "critique", payload: text}),
+  });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    out.innerHTML = `<span class="err">${escapeHtml(e.error || r.statusText)}</span>${e.hint ? `<br><span class="muted small">${escapeHtml(e.hint)}</span>` : ""}`;
+    return;
+  }
+  const data = await r.json();
+  out.innerHTML = `<pre class="llm-text">${escapeHtml(data.text)}</pre><div class="muted small">${data.model} &middot; ${data.input_tokens || "?"} in / ${data.output_tokens || "?"} out</div>`;
+});
+
+// ============ TEMPLATES TAB ================================================
+async function loadTemplates() {
+  const r = await fetch("/api/prompts/templates").then(r => r.json());
+  const el = document.getElementById("tpl-list");
+  if (!r.templates.length) {
+    el.innerHTML = "<p class=\"muted\">No templates yet. Save your first one above.</p>";
+    return;
+  }
+  el.innerHTML = r.templates.map(t => {
+    const updated = new Date(t.updated_at * 1000).toLocaleDateString();
+    const tags = t.tags.length ? t.tags.map(x => `<span class="tag-chip">${escapeHtml(x)}</span>`).join(" ") : "";
+    return `
+      <div class="tpl-row" data-id="${t.id}">
+        <div class="tpl-head">
+          <span class="tpl-name">${escapeHtml(t.name)}</span>
+          ${tags}
+          <span class="muted small" style="margin-left:auto;">used ${t.use_count}× · updated ${updated}</span>
+        </div>
+        <pre class="tpl-body">${escapeHtml(t.body)}</pre>
+        <div class="tpl-actions">
+          <button class="btn btn-tiny" data-act="copy" data-id="${t.id}">copy</button>
+          <button class="btn btn-tiny" data-act="critique" data-id="${t.id}">critique</button>
+          <button class="btn btn-tiny" data-act="edit" data-id="${t.id}">edit</button>
+          <button class="btn btn-tiny" data-act="delete" data-id="${t.id}">delete</button>
+        </div>
+      </div>`;
+  }).join("");
+  el.querySelectorAll("button[data-act]").forEach(b => {
+    b.addEventListener("click", e => handleTplAction(e.currentTarget.dataset.act, parseInt(e.currentTarget.dataset.id)));
+  });
+}
+
+async function handleTplAction(action, id) {
+  const tpl = (await fetch("/api/prompts/templates").then(r => r.json())).templates.find(t => t.id === id);
+  if (!tpl) return;
+  if (action === "copy") {
+    try { await navigator.clipboard.writeText(tpl.body); } catch (e) {}
+    await fetch(`/api/prompts/templates/${id}/use`, {method: "POST"});
+    loadTemplates();
+  } else if (action === "critique") {
+    document.querySelector('.prompts-tab[data-tab="critique"]').click();
+    document.getElementById("critique-input").value = tpl.body;
+    runCritique();
+  } else if (action === "edit") {
+    EDITING_TEMPLATE_ID = id;
+    document.getElementById("tpl-name").value = tpl.name;
+    document.getElementById("tpl-body").value = tpl.body;
+    document.getElementById("tpl-tags").value = tpl.tags.join(", ");
+    document.getElementById("tpl-edit-hint").textContent = `editing template #${id} — Save updates instead of creates`;
+    window.scrollTo({top: 0, behavior: "smooth"});
+  } else if (action === "delete") {
+    if (!confirm(`Delete template "${tpl.name}"?`)) return;
+    await fetch(`/api/prompts/templates/${id}`, {method: "DELETE"});
+    loadTemplates();
+  }
+}
+
+document.getElementById("tpl-save").addEventListener("click", async () => {
+  const name = document.getElementById("tpl-name").value.trim();
+  const body = document.getElementById("tpl-body").value.trim();
+  const tagsRaw = document.getElementById("tpl-tags").value.trim();
+  const tags = tagsRaw ? tagsRaw.split(",").map(s => s.trim()).filter(Boolean) : [];
+  if (!name || !body) { alert("name and body are required"); return; }
+  const url = EDITING_TEMPLATE_ID
+    ? `/api/prompts/templates/${EDITING_TEMPLATE_ID}`
+    : "/api/prompts/templates";
+  const method = EDITING_TEMPLATE_ID ? "PATCH" : "POST";
+  const r = await fetch(url, {
+    method, headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({name, body, tags}),
+  });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    alert("save failed: " + (e.detail || r.statusText));
+    return;
+  }
+  EDITING_TEMPLATE_ID = null;
+  document.getElementById("tpl-name").value = "";
+  document.getElementById("tpl-body").value = "";
+  document.getElementById("tpl-tags").value = "";
+  document.getElementById("tpl-edit-hint").textContent = "";
+  loadTemplates();
+});
+
+// Initial loads --------------------------------------------------------------
+loadPatterns();
+loadTemplates();
+</script>
+
+<style>
+.prompts-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin: 0 0 18px;
+}
+.prompts-tab {
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.prompts-tab:hover { color: var(--fg); }
+.prompts-tab.is-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.prompts-panel { display: none; }
+.prompts-panel.is-active { display: block; }
+
+.btn-deepen {
+  background: linear-gradient(135deg, #6ea8fe22, #6ea8fe11);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+.btn-deepen:hover { background: linear-gradient(135deg, #6ea8fe33, #6ea8fe22); }
+
+textarea#critique-input, textarea#tpl-body {
+  width: 100%; box-sizing: border-box;
+  resize: vertical;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 13px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+input#tpl-name, input#tpl-tags {
+  width: 100%; box-sizing: border-box;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+textarea:focus, input:focus { outline: none; border-color: var(--accent); }
+
+.delta-good { color: #3a9b3a; }
+.delta-bad  { color: var(--err); }
+.delta-mid  { color: var(--muted); }
+
+.finding-list { list-style: none; padding: 0; margin: 0; }
+.finding {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 10px;
+  border-left: 3px solid;
+  background: var(--panel-2);
+  border-radius: 4px;
+  margin-bottom: 6px;
+}
+.finding.weak   { border-left-color: var(--err); }
+.finding.strong { border-left-color: #3a9b3a; }
+.finding-tag {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg);
+  flex-shrink: 0;
+}
+.finding.weak .finding-tag   { color: var(--err); }
+.finding.strong .finding-tag { color: #3a9b3a; }
+.finding-sev {
+  font-size: 10.5px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.finding-msg { flex: 1; }
+
+.tpl-row {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  background: var(--panel-2);
+}
+.tpl-head { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+.tpl-name { font-weight: 600; color: var(--fg); font-size: 13px; }
+.tpl-body {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11.5px;
+  background: var(--bg);
+  padding: 8px 10px;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  margin: 0 0 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  color: var(--fg);
+}
+.tpl-actions { display: flex; gap: 4px; }
+
+.llm-text {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  background: var(--bg);
+  padding: 10px 12px;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  margin: 0 0 6px;
+  color: var(--fg);
+  line-height: 1.5;
+}
+</style>
+{% endblock %}

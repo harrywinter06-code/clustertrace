@@ -121,6 +121,16 @@ Every `claude_code.interaction` becomes a trace; child `claude_code.llm_request`
 
 Limits worth knowing: clustertrace only accepts OTLP/JSON (not protobuf), which is why the helper sets `OTEL_EXPORTER_OTLP_PROTOCOL=http/json`. If you point another OTel exporter at it, do the same.
 
+## Prompt help
+
+Open `/prompts` for three things on one page:
+
+- **Patterns from your data** &mdash; clustertrace extracts the prompts you actually wrote, splits them into "succeeded" vs "dead-ended" sessions, and reports which heuristics fire differently between the two. The biggest-delta rows are the habits to keep / drop.
+- **Critique a draft** &mdash; paste a prompt and get a lint pass: vague verbs, missing file paths, no acceptance criteria, 3+ connectives, hedging, etc. Ctrl+Enter to run.
+- **Templates** &mdash; CRUD library for the prompts you keep reusing. Copy, edit, tag, delete. The "critique" action pipes any saved template through the linter.
+
+Each tab has a "Deepen with Claude" button that calls Anthropic's API (your `ANTHROPIC_API_KEY`, Haiku by default) for a sharper read when the local heuristics aren't enough. Without the key set, the button surfaces a clear hint instead of a 500.
+
 ## Weekly review
 
 Open `/review` for a fifteen-minute Sunday loop over your last seven days of usage. Five questions answered with SQL over your own data: top expensive sessions, cache hit rate by pattern, the pattern you ran most often, sessions that dead-ended on `max_tokens` / `refusal` / errors, and a free-text "one change for next week" you persist and mark `kept` / `partial` / `missed` the following Sunday.

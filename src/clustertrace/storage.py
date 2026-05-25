@@ -169,6 +169,21 @@ _MIGRATIONS: list[str] = [
     CREATE INDEX IF NOT EXISTS idx_review_commitments_created_at
         ON review_commitments(created_at DESC);
     """,
+    # v6 — prompt templates the user keeps as reusable snippets. Surfaced on the
+    # /prompts page (templates tab) plus piped into the critique tab when picked.
+    """
+    CREATE TABLE IF NOT EXISTS prompt_templates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL,
+        name TEXT NOT NULL,
+        body TEXT NOT NULL,
+        tags_json TEXT,                  -- JSON list of free-form tag strings
+        use_count INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_prompt_templates_updated_at
+        ON prompt_templates(updated_at DESC);
+    """,
 ]
 _SCHEMA_VERSION = len(_MIGRATIONS)
 

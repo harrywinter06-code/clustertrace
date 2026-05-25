@@ -4,6 +4,24 @@ All notable changes to clustertrace. Format roughly follows [Keep a Changelog](h
 
 > **Renamed from `agentlog` to `clustertrace` in v0.5.0** — PyPI's name-similarity check rejected `agentlog` as too close to the existing `agentlogger` package. The new name lands the differentiator (clustering of traces) more directly anyway.
 
+## [0.12.0] — 2026-05-25
+
+### Added — `/prompts` page (prompt-engineering help)
+
+A new dashboard page with three tabs, rules-first with an optional LLM-deepen button:
+
+1. **Patterns from your data** — extracts prompts from your past traces (Claude Code's `user_prompt` attribute OR the last user message in `llm_call` spans' `input_json`), classifies each session as `succeeded` vs `dead_ended` (status / stop_reason), then reports per-heuristic prevalence in both corpora sorted by |delta|. The heuristics catalogue:
+   - Names a file path · Has acceptance criteria · Has scope marker · Quotes an error · Mentions tests
+   - Starts with vague verb · 3+ connectives (likely bundled) · Uses hedging · Very short / very long
+2. **Critique a draft** — paste-a-prompt textbox, runs the same heuristics on one input. Findings sorted weaknesses-first, by severity. Ctrl+Enter to run.
+3. **Templates** — CRUD over `prompt_templates(id, name, body, tags, use_count, ...)`. Copy / critique / edit / delete. Use-count auto-increments on copy. "Critique" action pipes the template into the critique tab.
+
+A "Deepen with Claude →" button on tabs 1 and 2 calls `POST /api/prompts/llm-deepen` which uses your `ANTHROPIC_API_KEY` and `claude-haiku-4-5` by default (override via `CLUSTERTRACE_DEEPEN_MODEL`). Returns 503 with a clear hint when the key or the SDK is missing — never a 500.
+
+New module: `clustertrace.prompt_help` (pure functions: `heuristic_results`, `analyse_prompt`, `patterns_from_traces`). Schema v6: `prompt_templates`. Fourteen new tests (engine + each endpoint + 503 path). 293 total, all green.
+
+Nav: adds "Prompts" as the fourth primary item (Patterns · Traces · Review · Prompts · Search).
+
 ## [0.11.0] — 2026-05-25
 
 ### Added — `/review` page (weekly self-review)

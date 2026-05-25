@@ -104,6 +104,354 @@ async def review_page(request: Request):
     return _TEMPLATES.TemplateResponse(request, "review.html", {})
 
 
+@app.get("/prompts", response_class=HTMLResponse)
+async def prompts_page(request: Request):
+    return _TEMPLATES.TemplateResponse(request, "prompts.html", {})
+
+
+# ---------------------------------------------------------------------------
+# Prompt-engineering help — analysis + templates + on-demand LLM
+# ---------------------------------------------------------------------------
+
+
+def _extract_user_prompts_for_trace(trace_id: str) -> list[str]:
+    """Pull every user-authored prompt string we can find for one trace.
+
+    Sources, in priority order:
+      1. Any span's `user_prompt` attribute (Claude Code OTel emits this on
+         `claude_code.interaction` when OTEL_LOG_USER_PROMPTS=1).
+      2. The last `role: "user"` message inside an `llm_call` span's
+         `input_json` (the Anthropic / OpenAI SDK wrapper path).
+    """
+    out: list[str] = []
+    with storage.connect() as c:
+        rows = c.execute(
+            "SELECT kind, input_json, attrs_json FROM spans WHERE trace_id = ?",
+            (trace_id,),
+        ).fetchall()
+    for r in rows:
+        attrs_raw = r["attrs_json"]
+        if attrs_raw:
+            try:
+                attrs = json.loads(attrs_raw)
+                if isinstance(attrs, dict) and isinstance(attrs.get("user_prompt"), str):
+                    out.append(attrs["user_prompt"])
+                    continue
+            except (ValueError, TypeError):
+                pass
+        if r["kind"] != "llm_call":
+            continue
+        ij = r["input_json"]
+        if not ij:
+            continue
+        try:
+            data = json.loads(ij)
+        except (ValueError, TypeError):
+            continue
+        msgs = None
+        if isinstance(data, dict):
+            msgs = data.get("messages") or data.get("input")
+        elif isinstance(data, list):
+            msgs = data
+        if not isinstance(msgs, list):
+            continue
+        for msg in reversed(msgs):
+            if not isinstance(msg, dict):
+                continue
+            if msg.get("role") != "user":
+                continue
+            content = msg.get("content")
+            if isinstance(content, str):
+                out.append(content)
+                break
+            if isinstance(content, list):
+                # Anthropic message-block shape: [{"type":"text","text":"..."}, ...]
+                text_blocks = [
+                    b.get("text", "")
+                    for b in content
+                    if isinstance(b, dict) and b.get("type") == "text"
+                ]
+                if text_blocks:
+                    out.append("\n".join(text_blocks))
+                    break
+    return [p for p in out if p and p.strip()]
+
+
+def _classify_trace_outcome(trace_id: str, status: str) -> str | None:
+    """`succeeded` | `dead_ended` | None (uninteresting).
+
+    Dead-ended := status='error' OR any llm_call's stop_reason is
+    max_tokens / refusal / pause_turn. Everything else with status='ok' counts
+    as succeeded; running or unknown statuses are skipped.
+    """
+    if status == "error":
+        return "dead_ended"
+    if status != "ok":
+        return None
+    with storage.connect() as c:
+        row = c.execute(
+            "SELECT 1 FROM spans WHERE trace_id = ? AND kind = 'llm_call' "
+            "AND json_extract(attrs_json, '$.stop_reason') IN "
+            "('max_tokens', 'refusal', 'pause_turn') LIMIT 1",
+            (trace_id,),
+        ).fetchone()
+    return "dead_ended" if row else "succeeded"
+
+
+@app.get("/api/prompts/patterns")
+async def api_prompts_patterns(window: str = Query("7d", pattern="^(7d|30d|all)$")):
+    """Compare prompts in succeeded vs dead-ended sessions over the window."""
+    from clustertrace import prompt_help
+
+    cutoff = _window_cutoff(window)
+    sql = "SELECT id, status FROM traces"
+    args: tuple = ()
+    if cutoff is not None:
+        sql += " WHERE started_at >= ?"
+        args = (cutoff,)
+    with storage.connect() as c:
+        rows = c.execute(sql, args).fetchall()
+    succeeded: list[str] = []
+    dead_ended: list[str] = []
+    for r in rows:
+        outcome = _classify_trace_outcome(r["id"], r["status"])
+        if outcome is None:
+            continue
+        prompts = _extract_user_prompts_for_trace(r["id"])
+        if not prompts:
+            continue
+        bucket = succeeded if outcome == "succeeded" else dead_ended
+        bucket.extend(prompts)
+    report = prompt_help.patterns_from_traces(succeeded, dead_ended)
+    report["window"] = window
+    return report
+
+
+@app.post("/api/prompts/critique")
+async def api_prompts_critique(request: Request):
+    """Rule-based critique of a single pasted prompt."""
+    from clustertrace import prompt_help
+
+    payload = await request.json()
+    text = (payload.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text required")
+    if len(text) > 10000:
+        raise HTTPException(status_code=400, detail="text too long (max 10000 chars)")
+    return prompt_help.analyse_prompt(text)
+
+
+@app.get("/api/prompts/templates")
+async def api_prompts_templates_list():
+    """All saved templates, most-recently-updated first."""
+    with storage.connect() as c:
+        rows = c.execute(
+            "SELECT id, created_at, updated_at, name, body, tags_json, use_count "
+            "FROM prompt_templates ORDER BY updated_at DESC"
+        ).fetchall()
+    out = []
+    for r in rows:
+        try:
+            tags = json.loads(r["tags_json"]) if r["tags_json"] else []
+        except (ValueError, TypeError):
+            tags = []
+        out.append(
+            {
+                "id": r["id"],
+                "created_at": r["created_at"],
+                "updated_at": r["updated_at"],
+                "name": r["name"],
+                "body": r["body"],
+                "tags": tags,
+                "use_count": int(r["use_count"]),
+            }
+        )
+    return {"templates": out}
+
+
+@app.post("/api/prompts/templates")
+async def api_prompts_templates_create(request: Request):
+    import time
+
+    payload = await request.json()
+    name = (payload.get("name") or "").strip()
+    body = (payload.get("body") or "").strip()
+    tags = payload.get("tags") or []
+    if not name or not body:
+        raise HTTPException(status_code=400, detail="name and body are required")
+    if len(name) > 200 or len(body) > 10000:
+        raise HTTPException(status_code=400, detail="name<=200, body<=10000")
+    if not isinstance(tags, list):
+        raise HTTPException(status_code=400, detail="tags must be a list")
+    now = time.time()
+    with storage.connect() as c:
+        cur = c.execute(
+            "INSERT INTO prompt_templates (created_at, updated_at, name, body, tags_json) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (now, now, name, body, json.dumps(tags)),
+        )
+    return {"id": cur.lastrowid, "name": name, "body": body, "tags": tags, "use_count": 0}
+
+
+@app.patch("/api/prompts/templates/{template_id}")
+async def api_prompts_templates_update(template_id: int, request: Request):
+    import time
+
+    payload = await request.json()
+    name = payload.get("name")
+    body = payload.get("body")
+    tags = payload.get("tags")
+    with storage.connect() as c:
+        existing = c.execute(
+            "SELECT name, body, tags_json FROM prompt_templates WHERE id = ?",
+            (template_id,),
+        ).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="template not found")
+        new_name = (name or existing["name"]).strip()
+        new_body = (body if body is not None else existing["body"]).strip()
+        if not new_name or not new_body:
+            raise HTTPException(status_code=400, detail="name and body cannot be empty")
+        new_tags = (
+            json.dumps(tags)
+            if isinstance(tags, list)
+            else existing["tags_json"] or "[]"
+        )
+        c.execute(
+            "UPDATE prompt_templates SET name=?, body=?, tags_json=?, updated_at=? WHERE id=?",
+            (new_name, new_body, new_tags, time.time(), template_id),
+        )
+    return {"id": template_id}
+
+
+@app.delete("/api/prompts/templates/{template_id}")
+async def api_prompts_templates_delete(template_id: int):
+    with storage.connect() as c:
+        cur = c.execute("DELETE FROM prompt_templates WHERE id = ?", (template_id,))
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="template not found")
+    return {"deleted": template_id}
+
+
+@app.post("/api/prompts/templates/{template_id}/use")
+async def api_prompts_templates_use(template_id: int):
+    """Increment use_count when the user copies a template. Best-effort."""
+    with storage.connect() as c:
+        c.execute(
+            "UPDATE prompt_templates SET use_count = use_count + 1 WHERE id = ?",
+            (template_id,),
+        )
+    return {"id": template_id}
+
+
+# --- LLM deepen --------------------------------------------------------------
+
+_DEEPEN_SYSTEM_PROMPTS = {
+    "critique": (
+        "You are a senior engineer doing a careful prompt review. "
+        "Read the prompt below and give 3-5 specific, actionable improvements. "
+        "Be direct. Refer to specific words / phrases in the prompt. "
+        "If the prompt is already strong, say so and only flag what would push it from good to excellent."
+    ),
+    "patterns": (
+        "You are analysing two corpora of prompts the user wrote: "
+        "those that led to successful sessions, and those that dead-ended. "
+        "Find the load-bearing differences. "
+        "Report the 2-3 most-discriminating patterns, then one concrete change the user should commit to next week."
+    ),
+    "template": (
+        "Review the prompt template below. "
+        "Suggest 2-4 concrete improvements: missing parameters, clearer scoping, better placeholders, etc. "
+        "Be brief — one short line per suggestion."
+    ),
+}
+
+
+@app.post("/api/prompts/llm-deepen")
+async def api_prompts_llm_deepen(request: Request):
+    """Send the analysis input to Anthropic for a deeper take.
+
+    Body: {"kind": "critique" | "patterns" | "template", "payload": <kind-specific>}.
+    Requires ANTHROPIC_API_KEY in the environment. Returns 503 with a clear
+    install / config hint when the key or the SDK are missing.
+    """
+    import os
+
+    payload = await request.json()
+    kind = payload.get("kind")
+    if kind not in _DEEPEN_SYSTEM_PROMPTS:
+        raise HTTPException(status_code=400, detail="kind must be critique|patterns|template")
+    body = payload.get("payload")
+    if not body:
+        raise HTTPException(status_code=400, detail="payload required")
+
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return JSONResponse(
+            {
+                "error": "ANTHROPIC_API_KEY not set",
+                "hint": "set ANTHROPIC_API_KEY in the dashboard's environment; "
+                "deepen-with-LLM uses your own key (Haiku by default to keep costs low).",
+            },
+            status_code=503,
+        )
+
+    try:
+        from anthropic import Anthropic
+    except ImportError:
+        return JSONResponse(
+            {
+                "error": "anthropic SDK not installed",
+                "hint": "pip install 'clustertrace[anthropic]'",
+            },
+            status_code=503,
+        )
+
+    # Format user content per kind.
+    if kind == "critique":
+        user_content = f"Prompt to review:\n\n```\n{body}\n```"
+    elif kind == "patterns":
+        # body should be a dict with two lists.
+        succ = body.get("succeeded") or []
+        dead = body.get("dead_ended") or []
+        # Cap each example to avoid sending megabytes.
+        succ_snippets = "\n---\n".join(s[:600] for s in succ[:8])
+        dead_snippets = "\n---\n".join(s[:600] for s in dead[:8])
+        user_content = (
+            f"Prompts that succeeded (sample of {len(succ)}):\n\n{succ_snippets}\n\n"
+            f"=====\n\nPrompts that dead-ended (sample of {len(dead)}):\n\n{dead_snippets}"
+        )
+    else:  # template
+        user_content = f"Template to review:\n\n```\n{body}\n```"
+
+    model = os.environ.get("CLUSTERTRACE_DEEPEN_MODEL", "claude-haiku-4-5-20251001")
+    try:
+        client = Anthropic()
+        resp = client.messages.create(
+            model=model,
+            max_tokens=900,
+            system=_DEEPEN_SYSTEM_PROMPTS[kind],
+            messages=[{"role": "user", "content": user_content}],
+        )
+        text_blocks = [
+            getattr(b, "text", "")
+            for b in resp.content
+            if getattr(b, "type", None) == "text"
+        ]
+        text = "\n".join(text_blocks).strip()
+        usage = getattr(resp, "usage", None)
+        return {
+            "text": text,
+            "model": model,
+            "input_tokens": getattr(usage, "input_tokens", None),
+            "output_tokens": getattr(usage, "output_tokens", None),
+        }
+    except Exception as e:
+        return JSONResponse(
+            {"error": f"LLM call failed: {type(e).__name__}: {e}"},
+            status_code=502,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Weekly review API
 # ---------------------------------------------------------------------------
