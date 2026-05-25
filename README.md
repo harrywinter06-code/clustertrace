@@ -103,6 +103,24 @@ clustertrace replay <trace_id> --entry mod:fn          # re-run with captured ar
 clustertrace db-path                                   # print SQLite path
 ```
 
+## Use with Claude Code
+
+Pipe Claude Code's OpenTelemetry traces into clustertrace and you get cluster, failure-pattern, and cost analysis of your *actual* Claude Code usage — which prompt shapes burn tokens, which tool sequences dominate your sessions, which stop reasons cluster around which patterns. The dashboard ships an OTLP/JSON receiver on the same port; Claude Code POSTs spans straight to it.
+
+```bash
+# 1. print the env vars (auto-detects PowerShell on Windows, bash elsewhere)
+clustertrace claude-code                  # metadata only (token counts, tool names)
+clustertrace claude-code --content        # also capture prompt text + tool I/O
+# 2. paste the output into your shell rc
+# 3. in another terminal:
+clustertrace dashboard
+# 4. run Claude Code as normal; traces start landing
+```
+
+Every `claude_code.interaction` becomes a trace; child `claude_code.llm_request` and `claude_code.tool` spans land as nested function calls with model, input/output tokens, cache hits, stop reason, tool name, and duration. Data stays on your machine (local SQLite). The receiver enforces a 16 MiB body cap (`CLUSTERTRACE_OTLP_MAX_BYTES` to override).
+
+Limits worth knowing: clustertrace only accepts OTLP/JSON (not protobuf), which is why the helper sets `OTEL_EXPORTER_OTLP_PROTOCOL=http/json`. If you point another OTel exporter at it, do the same.
+
 ## MCP server
 
 `clustertrace mcp` exposes traces, clusters, and search through the Model Context Protocol, so any MCP-capable editor (Claude Code, Cursor, Continue) can ask "show me a failing trace of this pattern" or "diff this trace against a successful one" as a single command.

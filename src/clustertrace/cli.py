@@ -34,6 +34,70 @@ def dashboard(host: str, port: int, reload: bool) -> None:
     )
 
 
+@main.command(name="claude-code")
+@click.option(
+    "--shell",
+    type=click.Choice(["auto", "bash", "powershell"]),
+    default="auto",
+    show_default=True,
+    help="Output format. 'auto' picks PowerShell on Windows, bash elsewhere.",
+)
+@click.option("--port", default=7777, show_default=True, type=int, help="Dashboard port (where Claude Code POSTs to).")
+@click.option(
+    "--content",
+    is_flag=True,
+    help="Include optional vars that capture prompt text + tool I/O. "
+    "Default is metadata-only (token counts, tool names, durations).",
+)
+def claude_code(shell: str, port: int, content: bool) -> None:
+    """Print env vars to pipe Claude Code's OpenTelemetry traces into clustertrace.
+
+    Then run `clustertrace dashboard` to receive them. The dashboard exposes
+    POST /v1/traces (OTLP/JSON) on the same port.
+    """
+    import os
+
+    if shell == "auto":
+        shell = "powershell" if os.name == "nt" else "bash"
+
+    endpoint = f"http://localhost:{port}/v1/traces"
+    required = [
+        ("CLAUDE_CODE_ENABLE_TELEMETRY", "1"),
+        ("CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", "1"),
+        ("OTEL_TRACES_EXPORTER", "otlp"),
+        # clustertrace's /v1/traces accepts JSON only; default is protobuf, so override.
+        ("OTEL_EXPORTER_OTLP_PROTOCOL", "http/json"),
+        ("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", endpoint),
+    ]
+    optional = [
+        ("OTEL_LOG_USER_PROMPTS", "1"),
+        ("OTEL_LOG_TOOL_DETAILS", "1"),
+    ]
+
+    if shell == "powershell":
+        click.echo("# Paste into PowerShell. For persistence, add to $PROFILE.")
+        click.echo(f"# Then in another terminal: clustertrace dashboard --port {port}")
+        click.echo("")
+        for name, value in required:
+            click.echo(f"$env:{name} = '{value}'")
+        if content:
+            click.echo("")
+            click.echo("# Optional - captures prompt text + tool args. Data stays on your machine (local SQLite).")
+            for name, value in optional:
+                click.echo(f"$env:{name} = '{value}'")
+    else:
+        click.echo("# Paste into bash/zsh. For persistence, add to ~/.bashrc or ~/.zshrc.")
+        click.echo(f"# Then in another terminal: clustertrace dashboard --port {port}")
+        click.echo("")
+        for name, value in required:
+            click.echo(f"export {name}={value}")
+        if content:
+            click.echo("")
+            click.echo("# Optional - captures prompt text + tool args. Data stays on your machine (local SQLite).")
+            for name, value in optional:
+                click.echo(f"export {name}={value}")
+
+
 @main.command()
 @click.option("--port", default=7777, show_default=True, type=int)
 @click.option("--no-browser", is_flag=True, help="Don't open the browser automatically.")

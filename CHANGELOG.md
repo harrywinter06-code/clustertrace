@@ -4,6 +4,22 @@ All notable changes to clustertrace. Format roughly follows [Keep a Changelog](h
 
 > **Renamed from `agentlog` to `clustertrace` in v0.5.0** — PyPI's name-similarity check rejected `agentlog` as too close to the existing `agentlogger` package. The new name lands the differentiator (clustering of traces) more directly anyway.
 
+## [0.10.0] — 2026-05-25
+
+### Added — Claude Code integration
+
+The dashboard's existing OTLP/JSON receiver (`POST /v1/traces`, shipped in 0.9.1) now has a one-command setup helper for Claude Code's OpenTelemetry exporter:
+
+```bash
+clustertrace claude-code               # prints the 5 env vars to paste into your shell
+clustertrace claude-code --content     # also include the optional content-gating vars
+clustertrace dashboard                 # receive
+```
+
+Auto-detects PowerShell on Windows, bash elsewhere. The shell can be overridden with `--shell {bash,powershell}`.
+
+Every `claude_code.interaction` span becomes a trace; child `claude_code.llm_request` and `claude_code.tool` spans land as nested function calls with model, input/output tokens, cache hits, stop reason, tool name, and duration. README has a new "Use with Claude Code" section that links the same flow.
+
 ## [0.9.1] — 2026-05-23
 
 ### Changed — dashboard UX
