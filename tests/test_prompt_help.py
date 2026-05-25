@@ -32,6 +32,26 @@ def test_heuristic_file_path_fires_on_unix_and_windows():
     assert prompt_help.heuristic_results(r"edit C:\Users\me\bar.ts")["mentions_file_path"]
 
 
+def test_heuristic_file_path_does_not_fire_on_domain_or_version():
+    # Regression: the original regex matched any "word.word" token, so plain
+    # English with embedded dots leaked into the file-path heuristic.
+    assert not prompt_help.heuristic_results("see example.com for details")[
+        "mentions_file_path"
+    ]
+    assert not prompt_help.heuristic_results("on version 1.2.3 of the library")[
+        "mentions_file_path"
+    ]
+    assert not prompt_help.heuristic_results("Mr. Smith said i.e. that")[
+        "mentions_file_path"
+    ]
+
+
+def test_heuristic_file_path_fires_on_bare_known_extension():
+    # Bare names with known code/doc extensions should still count as paths.
+    assert prompt_help.heuristic_results("update README.md")["mentions_file_path"]
+    assert prompt_help.heuristic_results("edit package.json")["mentions_file_path"]
+
+
 def test_heuristic_acceptance_criteria_fires():
     assert prompt_help.heuristic_results("it should compile and pass tests")[
         "has_acceptance_criteria"
@@ -206,3 +226,27 @@ def test_api_patterns_splits_succeeded_vs_dead_ended():
     file_row = next((r for r in body["rows"] if r["key"] == "mentions_file_path"), None)
     assert file_row is not None
     assert file_row["succeeded_rate"] > file_row["dead_ended_rate"]
+
+
+def test_api_patterns_with_samples_returns_actual_prompts():
+    """The Deepen-with-Claude flow depends on sample prompts being shipped
+    with the patterns response. Without with_samples=1 they must be absent;
+    with it, each bucket must contain at least one prompt from the seeded
+    traces (truncated to 600 chars)."""
+    client = TestClient(app)
+    long_prompt = "rewrite src/foo.py " + ("blah " * 200)  # > 600 chars
+    _seed_trace_with_prompt("t-sample-s1", long_prompt, dead_ended=False)
+    _seed_trace_with_prompt("t-sample-d1", "fix this thing", dead_ended=True)
+
+    # Default: no samples in response.
+    r = client.get("/api/prompts/patterns?window=all")
+    assert "sample_succeeded" not in r.json()
+
+    # with_samples=1: arrays present and prompts capped at 600 chars.
+    r = client.get("/api/prompts/patterns?window=all&with_samples=1")
+    body = r.json()
+    assert "sample_succeeded" in body
+    assert "sample_dead_ended" in body
+    assert any("rewrite src/foo.py" in s for s in body["sample_succeeded"])
+    assert all(len(s) <= 600 for s in body["sample_succeeded"])
+    assert any("fix this" in s for s in body["sample_dead_ended"])

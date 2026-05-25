@@ -4,6 +4,23 @@ All notable changes to clustertrace. Format roughly follows [Keep a Changelog](h
 
 > **Renamed from `agentlog` to `clustertrace` in v0.5.0** — PyPI's name-similarity check rejected `agentlog` as too close to the existing `agentlogger` package. The new name lands the differentiator (clustering of traces) more directly anyway.
 
+## [0.12.1] — 2026-05-25
+
+### Fixed — red-team pass on the /prompts page
+
+Eight findings from a self-audit; the four highest-impact ones fixed in code, the rest documented as accepted.
+
+**Fixed:**
+
+- **Patterns-deepen sent only heuristic percentages to Claude, not actual prompts.** The whole point of the deepen button is for Claude to read your real prompts. `GET /api/prompts/patterns?with_samples=1` now ships up to 10 sample prompts per bucket (each truncated to 600 chars). The deepen button uses these instead of the prevalence summary.
+- **N+1 queries on the patterns endpoint** (one `SELECT` + 2×N follow-ups per trace). Rewritten as a single `traces LEFT JOIN spans` query that groups in Python. Same behaviour, one DB roundtrip.
+- **File-path regex false-fired on `example.com`, `version 1.2.3`, `Mr. Smith`, etc.** Tightened to require either a path separator or a known code/doc extension (`py`, `ts`, `md`, `json`, ~45 total). Adds two regression tests.
+- **Deepen button is now disabled until samples are loaded** and its tooltip says explicitly *"your prompt text leaves your machine for this one call"* — closes the gap between the local-first pitch and the LLM call.
+- **Empty-critique submit now shows a feedback message** instead of silently doing nothing.
+- **Dropped `is_a_question` from heuristic labels** (it was in the patterns table but not in the critique rules — inconsistency). Heuristic itself stays computed for potential future use.
+
+**Accepted (not fixed):** LLM exception details surfaced in error JSON, forward-only schema migrations, no rate limiting on `/v1/traces` and `/api/prompts/llm-deepen`, templates list without pagination, sync DB inside async handlers. All standard tradeoffs for a local-only single-user dashboard.
+
 ## [0.12.0] — 2026-05-25
 
 ### Added — `/prompts` page (prompt-engineering help)

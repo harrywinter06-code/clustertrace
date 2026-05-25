@@ -73,11 +73,33 @@ _SCOPE_MARKERS = (
     "out of scope",
 )
 
+# Known code/doc extensions. A "dot-something" token only counts as a file
+# path if (a) it has a path separator, or (b) its extension is one of these.
+# This stops "example.com" / "version 1.2.3" / "Mr. Smith" from being
+# misclassified as file paths.
+_CODE_EXTENSIONS = (
+    "py", "js", "jsx", "ts", "tsx", "mjs", "cjs",
+    "rs", "go", "java", "kt", "kts", "scala",
+    "c", "h", "cc", "cpp", "hpp", "swift", "m", "mm",
+    "rb", "php", "sh", "bash", "zsh", "fish", "ps1",
+    "md", "rst", "txt", "html", "htm", "css", "scss", "sass",
+    "json", "yaml", "yml", "toml", "ini", "conf", "cfg",
+    "sql", "graphql", "proto", "lock", "csv", "tsv",
+    "vue", "svelte", "astro", "lua", "ex", "exs", "erl",
+    "r", "jl", "ipynb", "tex",
+)
+_EXT_GROUP = "|".join(_CODE_EXTENSIONS)
 _FILE_PATH_RE = re.compile(
-    r"(?:^|[\s`'\"(/])"
-    r"(?:[A-Za-z]:\\|\.{1,2}\\|/)?"
-    r"[\w\-./\\]+\.[A-Za-z0-9]{1,8}"
-    r"(?:[\s`'\")]|$)"
+    rf"(?:^|[\s`'\"(])"
+    rf"(?:"
+    # Path with a separator anywhere in it (e.g. src/foo.py, ./bar, C:\baz)
+    rf"(?:[A-Za-z]:[/\\]|\.{{1,2}}[/\\]|/)?[\w\-]+(?:[/\\][\w\-.]+)+\.[A-Za-z0-9]{{1,5}}"
+    rf"|"
+    # OR a bare name with a known code extension (README.md, package.json)
+    rf"[\w\-]+\.(?:{_EXT_GROUP})"
+    rf")"
+    rf"(?:[\s`'\"):,.;?!]|$)",
+    re.IGNORECASE,
 )
 
 _CONNECTIVE_RE = re.compile(r"\b(?:and|also|plus|then|after that|additionally)\b", re.IGNORECASE)
@@ -206,7 +228,10 @@ _HEURISTIC_LABELS: dict[str, str] = {
     "mentions_tests": "Mentions tests",
     "quotes_error_message": "Quotes an error / output",
     "uses_hedging": "Uses hedging language",
-    "is_a_question": "Is phrased as a question",
+    # `is_a_question` is computed but intentionally excluded here: question-
+    # vs-statement phrasing didn't show meaningful discrimination in my own
+    # corpus and adding it to the labels list without a critique rule for it
+    # creates a UI inconsistency. Keeping the heuristic for future use.
 }
 
 

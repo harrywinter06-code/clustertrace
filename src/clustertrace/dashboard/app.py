@@ -114,116 +114,149 @@ async def prompts_page(request: Request):
 # ---------------------------------------------------------------------------
 
 
-def _extract_user_prompts_for_trace(trace_id: str) -> list[str]:
-    """Pull every user-authored prompt string we can find for one trace.
+_DEAD_END_STOP_REASONS = ("max_tokens", "refusal", "pause_turn")
+
+
+def _extract_prompt_from_span_row(
+    kind: str, input_json: str | None, attrs_json: str | None
+) -> str | None:
+    """Pure: given one span row's columns, return the user prompt text if any.
 
     Sources, in priority order:
-      1. Any span's `user_prompt` attribute (Claude Code OTel emits this on
+      1. `user_prompt` attribute (Claude Code OTel emits this on
          `claude_code.interaction` when OTEL_LOG_USER_PROMPTS=1).
-      2. The last `role: "user"` message inside an `llm_call` span's
+      2. The last `role:"user"` message inside an `llm_call` span's
          `input_json` (the Anthropic / OpenAI SDK wrapper path).
     """
-    out: list[str] = []
-    with storage.connect() as c:
-        rows = c.execute(
-            "SELECT kind, input_json, attrs_json FROM spans WHERE trace_id = ?",
-            (trace_id,),
-        ).fetchall()
-    for r in rows:
-        attrs_raw = r["attrs_json"]
-        if attrs_raw:
-            try:
-                attrs = json.loads(attrs_raw)
-                if isinstance(attrs, dict) and isinstance(attrs.get("user_prompt"), str):
-                    out.append(attrs["user_prompt"])
-                    continue
-            except (ValueError, TypeError):
-                pass
-        if r["kind"] != "llm_call":
-            continue
-        ij = r["input_json"]
-        if not ij:
-            continue
+    if attrs_json:
         try:
-            data = json.loads(ij)
+            attrs = json.loads(attrs_json)
+            if isinstance(attrs, dict) and isinstance(attrs.get("user_prompt"), str):
+                p = attrs["user_prompt"]
+                return p if p.strip() else None
         except (ValueError, TypeError):
-            continue
-        msgs = None
-        if isinstance(data, dict):
-            msgs = data.get("messages") or data.get("input")
-        elif isinstance(data, list):
-            msgs = data
-        if not isinstance(msgs, list):
-            continue
-        for msg in reversed(msgs):
-            if not isinstance(msg, dict):
-                continue
-            if msg.get("role") != "user":
-                continue
-            content = msg.get("content")
-            if isinstance(content, str):
-                out.append(content)
-                break
-            if isinstance(content, list):
-                # Anthropic message-block shape: [{"type":"text","text":"..."}, ...]
-                text_blocks = [
-                    b.get("text", "")
-                    for b in content
-                    if isinstance(b, dict) and b.get("type") == "text"
-                ]
-                if text_blocks:
-                    out.append("\n".join(text_blocks))
-                    break
-    return [p for p in out if p and p.strip()]
-
-
-def _classify_trace_outcome(trace_id: str, status: str) -> str | None:
-    """`succeeded` | `dead_ended` | None (uninteresting).
-
-    Dead-ended := status='error' OR any llm_call's stop_reason is
-    max_tokens / refusal / pause_turn. Everything else with status='ok' counts
-    as succeeded; running or unknown statuses are skipped.
-    """
-    if status == "error":
-        return "dead_ended"
-    if status != "ok":
+            pass
+    if kind != "llm_call" or not input_json:
         return None
-    with storage.connect() as c:
-        row = c.execute(
-            "SELECT 1 FROM spans WHERE trace_id = ? AND kind = 'llm_call' "
-            "AND json_extract(attrs_json, '$.stop_reason') IN "
-            "('max_tokens', 'refusal', 'pause_turn') LIMIT 1",
-            (trace_id,),
-        ).fetchone()
-    return "dead_ended" if row else "succeeded"
+    try:
+        data = json.loads(input_json)
+    except (ValueError, TypeError):
+        return None
+    if isinstance(data, dict):
+        msgs = data.get("messages")
+        # Tighter check than `or`: empty messages means "no messages", not
+        # "look at input next". Only fall through if the key isn't present.
+        if not isinstance(msgs, list):
+            msgs = data.get("input") if "input" in data else None
+    elif isinstance(data, list):
+        msgs = data
+    else:
+        msgs = None
+    if not isinstance(msgs, list):
+        return None
+    for msg in reversed(msgs):
+        if not isinstance(msg, dict) or msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if isinstance(content, str):
+            return content if content.strip() else None
+        if isinstance(content, list):
+            text_blocks = [
+                b.get("text", "")
+                for b in content
+                if isinstance(b, dict) and b.get("type") == "text"
+            ]
+            joined = "\n".join(text_blocks).strip()
+            return joined or None
+    return None
 
 
 @app.get("/api/prompts/patterns")
-async def api_prompts_patterns(window: str = Query("7d", pattern="^(7d|30d|all)$")):
-    """Compare prompts in succeeded vs dead-ended sessions over the window."""
+async def api_prompts_patterns(
+    window: str = Query("7d", pattern="^(7d|30d|all)$"),
+    with_samples: bool = Query(False),
+    sample_limit: int = Query(10, ge=1, le=30),
+):
+    """Compare prompts in succeeded vs dead-ended sessions over the window.
+
+    Single SQL query joins traces + spans so we walk each row once rather
+    than running 2N+1 lookups per trace. `with_samples=true` returns up to
+    `sample_limit` truncated prompt examples in each bucket, used by the
+    Deepen-with-Claude flow so the LLM gets actual prompts rather than just
+    aggregated rates.
+    """
     from clustertrace import prompt_help
 
     cutoff = _window_cutoff(window)
-    sql = "SELECT id, status FROM traces"
+    sql = (
+        "SELECT t.id AS trace_id, t.status AS trace_status, "
+        "       s.kind AS span_kind, s.input_json, s.attrs_json, "
+        "       json_extract(s.attrs_json, '$.stop_reason') AS stop_reason "
+        "FROM traces t LEFT JOIN spans s ON s.trace_id = t.id"
+    )
     args: tuple = ()
     if cutoff is not None:
-        sql += " WHERE started_at >= ?"
+        sql += " WHERE t.started_at >= ?"
         args = (cutoff,)
+    sql += " ORDER BY t.id"
+
     with storage.connect() as c:
         rows = c.execute(sql, args).fetchall()
+
+    # Walk rows grouped by trace_id. For each trace, collect:
+    #   - the trace-level status
+    #   - whether any span has a dead-end stop_reason
+    #   - the set of prompt strings extracted from each span
     succeeded: list[str] = []
     dead_ended: list[str] = []
-    for r in rows:
-        outcome = _classify_trace_outcome(r["id"], r["status"])
-        if outcome is None:
+
+    current_id: str | None = None
+    current_status: str | None = None
+    current_dead: bool = False
+    current_prompts: list[str] = []
+
+    def _finalize() -> None:
+        if current_id is None:
+            return
+        if not current_prompts:
+            return
+        # Skip status='running' or anything not ok/error.
+        if current_status not in ("ok", "error"):
+            return
+        is_dead = current_dead or current_status == "error"
+        bucket = dead_ended if is_dead else succeeded
+        bucket.extend(current_prompts)
+
+    for row in rows:
+        tid = row["trace_id"]
+        if tid != current_id:
+            _finalize()
+            current_id = tid
+            current_status = row["trace_status"]
+            current_dead = False
+            current_prompts = []
+        if row["stop_reason"] in _DEAD_END_STOP_REASONS:
+            current_dead = True
+        # The LEFT JOIN means a trace with zero spans yields one row with all
+        # span columns NULL — skip the prompt extraction in that case.
+        if row["span_kind"] is None:
             continue
-        prompts = _extract_user_prompts_for_trace(r["id"])
-        if not prompts:
-            continue
-        bucket = succeeded if outcome == "succeeded" else dead_ended
-        bucket.extend(prompts)
+        prompt = _extract_prompt_from_span_row(
+            row["span_kind"], row["input_json"], row["attrs_json"]
+        )
+        if prompt is not None:
+            current_prompts.append(prompt)
+    _finalize()
+
     report = prompt_help.patterns_from_traces(succeeded, dead_ended)
     report["window"] = window
+
+    if with_samples:
+        # Truncate each sample to keep response (and downstream LLM context)
+        # bounded; the LLM-deepen endpoint will also cap, but doing it here
+        # means the JSON wire payload doesn't carry the whole corpus.
+        report["sample_succeeded"] = [p[:600] for p in succeeded[:sample_limit]]
+        report["sample_dead_ended"] = [p[:600] for p in dead_ended[:sample_limit]]
     return report
 
 

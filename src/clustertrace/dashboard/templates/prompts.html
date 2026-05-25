@@ -20,7 +20,7 @@
       <button class="btn-window is-active" data-window="7d">7 days</button>
       <button class="btn-window" data-window="30d">30 days</button>
       <button class="btn-window" data-window="all">all time</button>
-      <button id="patterns-deepen" class="btn btn-deepen" style="margin-left: auto;" title="Send the corpus to Anthropic for a sharper read. Uses your ANTHROPIC_API_KEY. Haiku by default.">Deepen with Claude →</button>
+      <button id="patterns-deepen" class="btn btn-deepen" style="margin-left: auto;" disabled title="Sends up to 10 sample prompts from each corpus to Anthropic's API. Your prompt text leaves your machine for this one call. Uses your ANTHROPIC_API_KEY; Haiku by default.">Deepen with Claude →</button>
     </div>
     <div class="review-card">
       <h2>Heuristic prevalence — succeeded vs dead-ended</h2>
@@ -40,7 +40,7 @@
       <textarea id="critique-input" rows="8" placeholder="Paste the prompt you're about to send to Claude (or any other LLM)..."></textarea>
       <div style="display:flex; gap:8px; margin-top:8px; flex-wrap: wrap;">
         <button id="critique-run" class="btn btn-primary">Lint</button>
-        <button id="critique-deepen" class="btn btn-deepen">Deepen with Claude →</button>
+        <button id="critique-deepen" class="btn btn-deepen" title="Sends the pasted prompt to Anthropic's API. Your prompt text leaves your machine for this one call. Uses your ANTHROPIC_API_KEY; Haiku by default.">Deepen with Claude →</button>
         <span id="critique-meta" class="muted small" style="margin-left:auto; align-self:center;"></span>
       </div>
     </div>
@@ -110,8 +110,12 @@ document.querySelectorAll(".btn-window").forEach(btn => {
 
 async function loadPatterns() {
   const el = document.getElementById("patterns-out");
+  const deepenBtn = document.getElementById("patterns-deepen");
+  deepenBtn.disabled = true;
   el.innerHTML = "<span class=\"muted\">loading…</span>";
-  const r = await fetch(`/api/prompts/patterns?window=${PATTERNS_WINDOW}`).then(r => r.json());
+  // Request samples up-front so the Deepen button has actual prompts to send,
+  // not just heuristic percentages.
+  const r = await fetch(`/api/prompts/patterns?window=${PATTERNS_WINDOW}&with_samples=1`).then(r => r.json());
   PATTERNS_DATA = r;
   if (!r.succeeded_count && !r.dead_ended_count) {
     el.innerHTML = `<p class="muted">No traces with extractable prompts in this window. clustertrace pulls prompts from either <code>user_prompt</code> span attributes (Claude Code with <code>OTEL_LOG_USER_PROMPTS=1</code>) or the last user message in <code>llm_call</code> spans' <code>input_json</code> (Anthropic / OpenAI SDK wrapper). Once you've run a few sessions, prevalence numbers appear here.</p>`;
@@ -134,25 +138,28 @@ async function loadPatterns() {
       <thead><tr><th>Heuristic</th><th>Succeeded</th><th>Dead-ended</th><th>Delta</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
+  // Only enable Deepen once we have at least one sample to ship to Claude.
+  const haveSamples = (r.sample_succeeded || []).length + (r.sample_dead_ended || []).length > 0;
+  deepenBtn.disabled = !haveSamples;
+  deepenBtn.title = haveSamples
+    ? "Sends up to 10 sample prompts from each corpus to Anthropic's API. Your prompt text leaves your machine for this one call."
+    : "No samples available yet (need at least one classified session with extractable prompts).";
 }
 
 document.getElementById("patterns-deepen").addEventListener("click", async () => {
+  if (!PATTERNS_DATA || !(PATTERNS_DATA.sample_succeeded || []).length
+                       && !(PATTERNS_DATA.sample_dead_ended || []).length) {
+    return;  // button should be disabled; defensive guard
+  }
   const card = document.getElementById("patterns-deepen-card");
   const out = document.getElementById("patterns-deepen-out");
   card.style.display = "";
-  out.innerHTML = "<span class=\"muted\">asking Claude…</span>";
-  // Re-fetch the raw corpora so we can ship them up. Simpler than caching across loads.
-  const r = await fetch(`/api/prompts/patterns?window=${PATTERNS_WINDOW}&raw=1`).then(r => r.json()).catch(() => null);
-  // Endpoint doesn't ship raw text; we re-query traces from the dashboard side via the existing API
-  // would balloon this file. So: pass a summary string instead.
-  const summary = (PATTERNS_DATA && PATTERNS_DATA.rows) ? PATTERNS_DATA.rows.map(rr =>
-    `${rr.label}: ${(rr.succeeded_rate*100).toFixed(0)}% in succeeded vs ${(rr.dead_ended_rate*100).toFixed(0)}% in dead-ended (delta ${(rr.delta*100).toFixed(0)}pp)`
-  ).join("\n") : "(no data)";
+  out.innerHTML = "<span class=\"muted\">asking Claude (your prompt text leaves your machine for this call)…</span>";
   const body = {
     kind: "patterns",
     payload: {
-      succeeded: [summary],
-      dead_ended: [`Counts: ${PATTERNS_DATA?.succeeded_count || 0} succeeded vs ${PATTERNS_DATA?.dead_ended_count || 0} dead-ended.`],
+      succeeded: PATTERNS_DATA.sample_succeeded || [],
+      dead_ended: PATTERNS_DATA.sample_dead_ended || [],
     },
   };
   const resp = await fetch("/api/prompts/llm-deepen", {
@@ -171,7 +178,12 @@ document.getElementById("patterns-deepen").addEventListener("click", async () =>
 // ============ CRITIQUE TAB =================================================
 async function runCritique() {
   const text = document.getElementById("critique-input").value;
-  if (!text.trim()) return;
+  if (!text.trim()) {
+    const card = document.getElementById("critique-out-card");
+    card.style.display = "";
+    document.getElementById("critique-out").innerHTML = '<p class="muted">Paste a prompt above first, then click Lint (or Ctrl+Enter from the textarea).</p>';
+    return;
+  }
   const r = await fetch("/api/prompts/critique", {
     method: "POST", headers: {"Content-Type": "application/json"},
     body: JSON.stringify({text}),
