@@ -4,6 +4,16 @@ All notable changes to clustertrace. Format roughly follows [Keep a Changelog](h
 
 > **Renamed from `agentlog` to `clustertrace` in v0.5.0** — PyPI's name-similarity check rejected `agentlog` as too close to the existing `agentlogger` package. The new name lands the differentiator (clustering of traces) more directly anyway.
 
+## [0.10.1] — 2026-05-25
+
+### Added — OTLP/HTTP/protobuf decoding
+
+`POST /v1/traces` now accepts both OTLP/HTTP/JSON (built-in) and OTLP/HTTP/protobuf (requires `clustertrace[otel-import]` extra). Content-type selects the codec; protobuf payloads are decoded via `opentelemetry-proto`, then have their base64-encoded ID fields rewritten to hex so the same `_OtlpSpanAdapter` path handles both. Without the extra installed, protobuf POSTs return 415 with an install hint rather than 500.
+
+`clustertrace claude-code` gains a `--protocol {json,protobuf}` flag. JSON stays default (always works); pass `--protocol protobuf` if the extra is installed and you want the denser wire format.
+
+Two new tests cover the protobuf success path and the 415 fallback.
+
 ## [0.10.0] — 2026-05-25
 
 ### Added — Claude Code integration

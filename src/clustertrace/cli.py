@@ -49,11 +49,19 @@ def dashboard(host: str, port: int, reload: bool) -> None:
     help="Include optional vars that capture prompt text + tool I/O. "
     "Default is metadata-only (token counts, tool names, durations).",
 )
-def claude_code(shell: str, port: int, content: bool) -> None:
+@click.option(
+    "--protocol",
+    type=click.Choice(["json", "protobuf"]),
+    default="json",
+    show_default=True,
+    help="OTel protocol. 'json' always works. 'protobuf' is denser but needs "
+    "`pip install clustertrace[otel-import]` on the dashboard side.",
+)
+def claude_code(shell: str, port: int, content: bool, protocol: str) -> None:
     """Print env vars to pipe Claude Code's OpenTelemetry traces into clustertrace.
 
     Then run `clustertrace dashboard` to receive them. The dashboard exposes
-    POST /v1/traces (OTLP/JSON) on the same port.
+    POST /v1/traces on the same port and accepts both OTLP/JSON and OTLP/protobuf.
     """
     import os
 
@@ -61,12 +69,12 @@ def claude_code(shell: str, port: int, content: bool) -> None:
         shell = "powershell" if os.name == "nt" else "bash"
 
     endpoint = f"http://localhost:{port}/v1/traces"
+    otlp_protocol = "http/json" if protocol == "json" else "http/protobuf"
     required = [
         ("CLAUDE_CODE_ENABLE_TELEMETRY", "1"),
         ("CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", "1"),
         ("OTEL_TRACES_EXPORTER", "otlp"),
-        # clustertrace's /v1/traces accepts JSON only; default is protobuf, so override.
-        ("OTEL_EXPORTER_OTLP_PROTOCOL", "http/json"),
+        ("OTEL_EXPORTER_OTLP_PROTOCOL", otlp_protocol),
         ("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", endpoint),
     ]
     optional = [

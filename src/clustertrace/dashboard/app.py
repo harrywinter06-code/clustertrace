@@ -731,13 +731,54 @@ def _otlp_max_bytes() -> int:
     return n if n > 0 else _DEFAULT_OTLP_MAX_BYTES
 
 
+def _decode_otlp_protobuf(raw_body: bytes) -> dict[str, Any]:
+    """Decode an OTLP/HTTP/protobuf ExportTraceServiceRequest into the same
+    dict shape OTLP/HTTP/JSON produces, so `_iter_otlp_spans` + `_OtlpSpanAdapter`
+    can consume both paths without branching.
+
+    Raises ImportError if `clustertrace[otel-import]` is not installed.
+    Raises any protobuf decode error.
+
+    The one subtlety: MessageToDict base64-encodes protobuf `bytes` fields
+    (traceId, spanId, parentSpanId). OTLP/JSON encodes the same fields as
+    hex, and `_OtlpSpanAdapter` parses them with `int(hex, 16)`. We rewrite
+    each ID in place after the dict conversion.
+    """
+    import base64
+
+    from google.protobuf.json_format import MessageToDict
+    from opentelemetry.proto.collector.trace.v1 import trace_service_pb2
+
+    req = trace_service_pb2.ExportTraceServiceRequest()
+    req.ParseFromString(raw_body)
+    payload = MessageToDict(req, preserving_proto_field_name=False)
+
+    for rs in payload.get("resourceSpans") or []:
+        for ss in rs.get("scopeSpans") or []:
+            for span in ss.get("spans") or []:
+                for k in ("traceId", "spanId", "parentSpanId"):
+                    v = span.get(k)
+                    if isinstance(v, str) and v:
+                        try:
+                            span[k] = base64.b64decode(v).hex()
+                        except Exception:
+                            # Leave as-is; _OtlpSpanAdapter will reject and the span
+                            # gets counted in `rejected`.
+                            pass
+    return payload
+
+
 @app.post("/v1/traces")
 async def ingest_traces(request: Request) -> JSONResponse:
-    """OTLP/JSON span ingestion.
+    """OTLP span ingestion (HTTP/JSON and HTTP/protobuf).
 
     Accepts an `ExportTraceServiceRequest` body, walks every span, and
     delegates each one to `ClustertraceSpanExporter._export_one`. Returns
     an empty `ExportTracePartialSuccess` body (the OTLP success shape).
+
+    Protocol selection follows Content-Type. JSON is built-in; protobuf
+    requires `pip install clustertrace[otel-import]` and returns 415 with a
+    helpful message otherwise.
 
     Body size is capped at `CLUSTERTRACE_OTLP_MAX_BYTES` (default 16 MiB) so
     a multi-GB POST cannot OOM the dashboard process. We honor a declared
@@ -769,20 +810,45 @@ async def ingest_traces(request: Request) -> JSONResponse:
             headers=_OTLP_CORS_HEADERS,
         )
 
-    try:
-        payload = json.loads(raw_body) if raw_body else {}
-    except Exception:
-        return JSONResponse(
-            {"error": "invalid JSON body"},
-            status_code=400,
-            headers=_OTLP_CORS_HEADERS,
-        )
-    if not isinstance(payload, dict):
-        return JSONResponse(
-            {"error": "expected OTLP ExportTraceServiceRequest object"},
-            status_code=400,
-            headers=_OTLP_CORS_HEADERS,
-        )
+    content_type = (request.headers.get("content-type") or "").lower().split(";", 1)[0].strip()
+    is_protobuf = content_type in ("application/x-protobuf", "application/protobuf")
+
+    if is_protobuf:
+        try:
+            payload = _decode_otlp_protobuf(raw_body)
+        except ImportError:
+            return JSONResponse(
+                {
+                    "error": (
+                        "protobuf body received but the protobuf decoder is not installed. "
+                        "Install with `pip install clustertrace[otel-import]`, or set "
+                        "OTEL_EXPORTER_OTLP_PROTOCOL=http/json on the sender."
+                    )
+                },
+                status_code=415,
+                headers=_OTLP_CORS_HEADERS,
+            )
+        except Exception as e:
+            return JSONResponse(
+                {"error": f"protobuf decode failed: {e}"},
+                status_code=400,
+                headers=_OTLP_CORS_HEADERS,
+            )
+    else:
+        try:
+            payload = json.loads(raw_body) if raw_body else {}
+        except Exception:
+            return JSONResponse(
+                {"error": "invalid JSON body"},
+                status_code=400,
+                headers=_OTLP_CORS_HEADERS,
+            )
+        if not isinstance(payload, dict):
+            return JSONResponse(
+                {"error": "expected OTLP ExportTraceServiceRequest object"},
+                status_code=400,
+                headers=_OTLP_CORS_HEADERS,
+            )
 
     exporter = ClustertraceSpanExporter()
     rejected = 0
