@@ -1009,3 +1009,12 @@ def stats() -> None:
     click.echo(f"traces: {traces}  failed: {failed}")
     click.echo(f"spans: {spans}")
     click.echo(f"cached cost: ${total_cost:.4f}")
+
+
+# Enable `python -m clustertrace.cli ...` (used by spawn_dashboard_detached when
+# the user has clustertrace installed but no `clustertrace.exe` on PATH yet).
+# Without this, the module imports, click registers all commands, but main()
+# is never invoked and the process silently exits — the exact failure that
+# caused 0.13.0 / 0.13.1's hook-spawned dashboards to never bind their port.
+if __name__ == "__main__":
+    main()

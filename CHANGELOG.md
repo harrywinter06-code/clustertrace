@@ -4,6 +4,20 @@ All notable changes to clustertrace. Format roughly follows [Keep a Changelog](h
 
 > **Renamed from `agentlog` to `clustertrace` in v0.5.0** — PyPI's name-similarity check rejected `agentlog` as too close to the existing `agentlogger` package. The new name lands the differentiator (clustering of traces) more directly anyway.
 
+## [0.13.2] — 2026-05-25
+
+### Fixed — critical: hook-spawned dashboard never started in 0.13.0 / 0.13.1
+
+`spawn_dashboard_detached` ran `python -m clustertrace.cli dashboard ...`, but
+`cli.py` had no `if __name__ == "__main__": main()` block — so the module
+imported, click registered every command, and then the process exited
+without ever invoking `main()`. The hook's `ensure-dashboard` printed
+`spawned dashboard pid=N` but nothing ever bound the port.
+
+Added the guard. Manual verification: `python -m clustertrace.cli dashboard --port 7780`
+now prints the startup banner and serves traffic. Anyone on 0.13.0 or 0.13.1
+needs this update for the SessionStart-hook flow to work at all.
+
 ## [0.13.1] — 2026-05-25
 
 ### Added — multi-account support for the hook installer
