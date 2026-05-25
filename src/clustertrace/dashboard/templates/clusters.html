@@ -245,42 +245,4 @@ document.getElementById('load-more').addEventListener('click', () => loadCluster
 })();
 </script>
 
-<style>
-.annotation-badge {
-  display: inline-block;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 10px;
-  border: 1px solid var(--border, #444);
-  background: transparent;
-  color: var(--text-muted, #888);
-  cursor: pointer;
-}
-.annotation-badge:hover { color: var(--text, #ddd); }
-.annotation-badge.expected-failure { background: #553311; color: #ffd5a0; }
-.annotation-badge.wontfix { background: #444; color: #ccc; }
-.annotation-badge.priority { background: #803020; color: #ffc0c0; }
-.annotation-badge.acceptable { background: #224422; color: #bce8bc; }
-.judgment {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 10px;
-  border: 1px solid var(--border, #444);
-}
-.judgment.none { color: #bce8bc; border-color: #2b6e2b; }
-.judgment.mid { color: #ffc888; border-color: #aa7733; }
-.judgment.high { color: #ffb0b0; border-color: #993333; }
-.cluster-card.is-expected { opacity: 0.55; }
-.annotation-editor {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
-  display: flex; align-items: center; justify-content: center; z-index: 999;
-}
-.annotation-editor-inner {
-  background: var(--bg-panel, #1b1d22);
-  padding: 18px; border-radius: 10px; min-width: 360px; max-width: 520px;
-  border: 1px solid var(--border, #333);
-}
-.annotation-editor-inner label { display: block; margin-top: 8px; }
-.annotation-editor-inner .input { width: 100%; box-sizing: border-box; margin-top: 2px; }
-</style>
 {% endblock %}

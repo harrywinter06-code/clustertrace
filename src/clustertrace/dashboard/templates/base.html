@@ -4,48 +4,78 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}clustertrace{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Geist:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="/static/style.css">
 <script src="https://unpkg.com/htmx.org@1.9.12"></script>
 </head>
 <body>
-<header class="topbar">
-  <div class="brand"><a href="/">clustertrace</a></div>
-  <nav>
-    <a href="/">Patterns</a>
-    <a href="/traces">Traces</a>
-    <a href="/review">Review</a>
-    <a href="/prompts">Prompts</a>
-    <a href="/search">Search</a>
-    <span class="nav-secondary-group">
-      <a href="/drift" class="nav-secondary">Drift</a>
-      <a href="/metrics" class="nav-secondary">Metrics</a>
-      <a href="/failures" class="nav-secondary">Failure graph</a>
-    </span>
-  </nav>
-  <div class="stats" id="header-stats" hx-get="/api/stats" hx-trigger="load" hx-swap="innerHTML">
-    <span class="muted">loading…</span>
+
+<!-- ============ MASTHEAD ============ -->
+<header class="masthead">
+  <div class="masthead-rule masthead-rule-top"></div>
+
+  <div class="masthead-row">
+    <div class="masthead-brand">
+      <a href="/" class="wordmark">clustertrace</a>
+      <p class="tagline">Local-first observability for LLM agents</p>
+    </div>
+    <aside class="masthead-stats" id="header-stats">
+      <span class="stat-loading">·</span>
+    </aside>
   </div>
+
+  <nav class="masthead-nav">
+    <a href="/" class="nav-link">Patterns</a>
+    <a href="/traces" class="nav-link">Traces</a>
+    <a href="/review" class="nav-link">Review</a>
+    <a href="/prompts" class="nav-link">Prompts</a>
+    <a href="/search" class="nav-link">Search</a>
+    <span class="nav-divider"></span>
+    <a href="/drift" class="nav-link nav-link-quiet">Drift</a>
+    <a href="/metrics" class="nav-link nav-link-quiet">Metrics</a>
+    <a href="/failures" class="nav-link nav-link-quiet">Failure graph</a>
+  </nav>
+
+  <div class="masthead-rule masthead-rule-bottom"></div>
 </header>
-<main>
+
+<!-- ============ MAIN ============ -->
+<main class="page">
 {% block content %}{% endblock %}
 </main>
+
+<footer class="colophon">
+  <p>
+    <span class="colophon-mark">¶</span>
+    clustertrace &middot; local-first &middot;
+    <a href="https://github.com/harrywinter06-code/clustertrace" rel="noopener" target="_blank">source on GitHub</a>
+  </p>
+</footer>
+
 <script>
-  // Render header stats once HTMX swaps in the JSON-ish payload.
-  // We re-fetch via fetch() for proper JSON parsing.
+  // Render the masthead stats — set in editorial-figure style:
+  //   60 RUNS · 12 ERR (20%) · 586 CALLS · $0.05
+  // Big numerals get the display serif so they read as masthead ornament,
+  // labels stay in small caps grotesque.
   (async () => {
     try {
       const r = await fetch('/api/stats');
       const d = await r.json();
       const el = document.getElementById('header-stats');
       const errPct = d.traces_total ? (d.traces_error / d.traces_total * 100).toFixed(0) : '0';
-      const costStr = d.total_cost_usd > 0 ? '$' + d.total_cost_usd.toFixed(2) : '$0';
+      const costStr = d.total_cost_usd > 0 ? '$' + d.total_cost_usd.toFixed(2) : '$0.00';
       el.innerHTML = `
-        <span><b>${d.traces_total}</b> runs</span>
-        <span><b>${d.traces_error}</b> failed (${errPct}%)</span>
-        <span class="muted"><b>${d.spans_total}</b> function calls</span>
-        <span class="muted">${costStr}</span>
+        <span class="stat"><span class="stat-fig">${d.traces_total}</span><span class="stat-lbl">Runs</span></span>
+        <span class="stat-sep">·</span>
+        <span class="stat"><span class="stat-fig stat-fig-err">${d.traces_error}</span><span class="stat-lbl">Failed&nbsp;(${errPct}%)</span></span>
+        <span class="stat-sep">·</span>
+        <span class="stat"><span class="stat-fig stat-fig-quiet">${d.spans_total.toLocaleString()}</span><span class="stat-lbl">Calls</span></span>
+        <span class="stat-sep">·</span>
+        <span class="stat"><span class="stat-fig stat-fig-quiet">${costStr}</span><span class="stat-lbl">Cost</span></span>
       `;
-    } catch (e) {}
+    } catch (e) { /* leave the placeholder */ }
   })();
 </script>
 </body>

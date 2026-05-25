@@ -4,6 +4,25 @@ All notable changes to clustertrace. Format roughly follows [Keep a Changelog](h
 
 > **Renamed from `agentlog` to `clustertrace` in v0.5.0** — PyPI's name-similarity check rejected `agentlog` as too close to the existing `agentlogger` package. The new name lands the differentiator (clustering of traces) more directly anyway.
 
+## [0.14.0] — 2026-05-25
+
+### Changed — full UI revamp: editorial / Swiss-modernist
+
+The dashboard moves off the generic dark-mode aesthetic onto a print-editorial vocabulary:
+
+- **Typography**: EB Garamond italic for display + headings, Geist for body + nav, DM Mono for figures and code. Tabular figures throughout. Small-caps letterspacing on all UI labels.
+- **Palette**: warm paper (`#f7f4ee`) background, near-black ink (`#1c1a16`), single vermillion accent (`#a8231b`). Muted forest for success, amber-ochre for warning. No more dark-mode.
+- **Masthead**: thick top rule, italic wordmark, masthead-stats with display-serif numerals and small-caps labels, caps-and-small nav row with hover underline in accent.
+- **Cards as sections**: dropped rounded corners and panel backgrounds; sections delimited by hairlines. Pages read like a printed editorial spread.
+- **Hero block**: a vermillion left rule + "№" mark + italic display headline, replacing the gradient-card hero on /review, /prompts, /.
+- **Buttons**: sharp corners, single ink border, all-caps small-letterspaced labels. Primary buttons fill accent; deepen-with-claude buttons keep accent stroke.
+- **Tables**: hairline-rule top + bottom, no inner gridlines, tabular numerals, all-caps small column heads.
+- **Colophon**: new footer with the "¶" pilcrow as ornament and a single source-link.
+
+Internally: the three page templates (review/prompts/clusters) had inline `<style>` blocks that re-styled cards/tables/badges with hardcoded dark-mode colours; these are deleted (-285 LOC across them). Everything now flows from a single `style.css` (≈700 lines including the new masthead/colophon).
+
+Tests unchanged: 310 pass, 2 skipped. CI green.
+
 ## [0.13.2] — 2026-05-25
 
 ### Fixed — critical: hook-spawned dashboard never started in 0.13.0 / 0.13.1
