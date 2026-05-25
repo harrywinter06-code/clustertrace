@@ -4,6 +4,27 @@ All notable changes to clustertrace. Format roughly follows [Keep a Changelog](h
 
 > **Renamed from `agentlog` to `clustertrace` in v0.5.0** — PyPI's name-similarity check rejected `agentlog` as too close to the existing `agentlogger` package. The new name lands the differentiator (clustering of traces) more directly anyway.
 
+## [0.13.1] — 2026-05-25
+
+### Added — multi-account support for the hook installer
+
+`clustertrace claude-code-hook install / uninstall / status` now accepts a
+`--settings-path` option that overrides the default settings.json target.
+The default-resolution order is:
+
+1. `--settings-path` if passed
+2. `$CLAUDE_CONFIG_DIR/settings.json` if that env var is set
+3. `~/.claude/settings.json`
+
+Step 2 means: if you run `claude-code-hook install` from a shell where a
+multi-account wrapper has already set `CLAUDE_CONFIG_DIR`, the hook lands
+in the right place automatically. Step 1 means you can target any
+settings.json explicitly without futzing with env vars.
+
+Multi-account setups (e.g. PowerShell `claude1`/`claude2`/`claude3`
+functions that each set their own `CLAUDE_CONFIG_DIR`) need one install
+per account.
+
 ## [0.13.0] — 2026-05-25
 
 ### Added — on-demand dashboard via Claude Code SessionStart hook

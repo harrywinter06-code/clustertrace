@@ -139,10 +139,29 @@ def claude_code_hook() -> None:
 
 
 def _claude_settings_path():
-    """Resolve the user-global Claude Code settings.json path."""
+    """Resolve the user-global Claude Code settings.json path.
+
+    Multi-account setups commonly use a `CLAUDE_CONFIG_DIR` env var to point
+    Claude Code at a different config root per shell invocation; this helper
+    respects that so calling the hook installer from a switched shell does
+    the right thing without needing --settings-path.
+    """
+    import os
     from pathlib import Path
 
+    explicit = os.environ.get("CLAUDE_CONFIG_DIR")
+    if explicit:
+        return Path(explicit) / "settings.json"
     return Path.home() / ".claude" / "settings.json"
+
+
+def _resolve_settings_path(override: str | None):
+    """The CLI's resolution order: explicit --settings-path > CLAUDE_CONFIG_DIR > default."""
+    from pathlib import Path
+
+    if override:
+        return Path(override)
+    return _claude_settings_path()
 
 
 _HOOK_COMMAND_TEMPLATE = "clustertrace ensure-dashboard --port {port} --idle-shutdown-minutes {idle}"
@@ -152,10 +171,10 @@ def _hook_command(port: int, idle_minutes: int) -> str:
     return _HOOK_COMMAND_TEMPLATE.format(port=port, idle=idle_minutes)
 
 
-def _load_claude_settings():
+def _load_claude_settings(settings_path: str | None = None):
     """Load settings.json, returning (parsed_dict, path). Empty dict if file
     doesn't exist or is empty. Raises ClickException on parse error."""
-    path = _claude_settings_path()
+    path = _resolve_settings_path(settings_path)
     if not path.exists():
         return {}, path
     try:
@@ -185,9 +204,18 @@ def _write_claude_settings(data: dict, path) -> None:
 @claude_code_hook.command(name="install")
 @click.option("--port", default=7777, show_default=True, type=int)
 @click.option("--idle-shutdown-minutes", default=15, show_default=True, type=int)
-def hook_install(port: int, idle_shutdown_minutes: int) -> None:
-    """Add a SessionStart hook to ~/.claude/settings.json. Idempotent."""
-    data, path = _load_claude_settings()
+@click.option("--settings-path", default=None, type=str,
+              help="Write to a specific settings.json (e.g. C:\\ClaudeC\\settings.json for a non-default account). "
+              "Defaults to CLAUDE_CONFIG_DIR/settings.json if that env is set, else ~/.claude/settings.json.")
+def hook_install(port: int, idle_shutdown_minutes: int, settings_path: str | None) -> None:
+    """Add a SessionStart hook to a Claude Code settings.json. Idempotent.
+
+    For multi-account setups (separate claude1/claude2/claude3 wrappers that
+    each set their own CLAUDE_CONFIG_DIR), run this once per account with the
+    matching --settings-path so every account's Claude Code session spawns
+    the dashboard.
+    """
+    data, path = _load_claude_settings(settings_path)
     hooks_root = data.setdefault("hooks", {})
     if not isinstance(hooks_root, dict):
         raise click.ClickException(
@@ -251,9 +279,11 @@ def hook_install(port: int, idle_shutdown_minutes: int) -> None:
 
 
 @claude_code_hook.command(name="uninstall")
-def hook_uninstall() -> None:
+@click.option("--settings-path", default=None, type=str,
+              help="Target a specific settings.json. Same default-resolution rules as `install`.")
+def hook_uninstall(settings_path: str | None) -> None:
     """Remove the clustertrace SessionStart hook (if installed)."""
-    data, path = _load_claude_settings()
+    data, path = _load_claude_settings(settings_path)
     hooks_root = data.get("hooks") or {}
     session_start = hooks_root.get("SessionStart") or []
     if not isinstance(session_start, list):
@@ -300,11 +330,13 @@ def hook_uninstall() -> None:
 
 @claude_code_hook.command(name="status")
 @click.option("--port", default=7777, show_default=True, type=int)
-def hook_status(port: int) -> None:
+@click.option("--settings-path", default=None, type=str,
+              help="Target a specific settings.json. Same default-resolution rules as `install`.")
+def hook_status(port: int, settings_path: str | None) -> None:
     """Report whether the hook is installed and whether the dashboard is up."""
     from clustertrace import process as _proc
 
-    data, path = _load_claude_settings()
+    data, path = _load_claude_settings(settings_path)
     hooks_root = data.get("hooks") or {}
     session_start = hooks_root.get("SessionStart") or []
     installed = False

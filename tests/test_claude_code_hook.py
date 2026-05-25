@@ -28,6 +28,22 @@ def temp_settings(tmp_path, monkeypatch):
     return settings_path
 
 
+def test_hook_install_respects_settings_path_override(tmp_path):
+    """--settings-path overrides the default location entirely — for
+    multi-account setups where claude1/claude2/claude3 each point at a
+    different CLAUDE_CONFIG_DIR."""
+    other_path = tmp_path / "alt-account" / "settings.json"
+    r = CliRunner().invoke(
+        cli.main,
+        ["claude-code-hook", "install", "--settings-path", str(other_path)],
+    )
+    assert r.exit_code == 0, r.output
+    assert other_path.exists()
+    data = json.loads(other_path.read_text(encoding="utf-8"))
+    cmd = data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+    assert cmd.startswith("clustertrace ensure-dashboard")
+
+
 def test_hook_install_creates_file_when_missing(temp_settings):
     assert not temp_settings.exists()
     r = CliRunner().invoke(cli.main, ["claude-code-hook", "install"])
