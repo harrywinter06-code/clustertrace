@@ -244,3 +244,13 @@ Single-user, no auth. The dashboard is intended for `127.0.0.1`. See [SECURITY.m
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+---
+
+## Author
+
+Built by **[Harry Winter](https://harrywinter06-code.github.io/)**, an Information Management for Business student at UCL in London.
+
+- Project write-up: [harrywinter06-code.github.io/projects/clustertrace/](https://harrywinter06-code.github.io/projects/clustertrace/)
+- Portfolio: [harrywinter06-code.github.io](https://harrywinter06-code.github.io/)
+- LinkedIn: [linkedin.com/in/harry-p-winter](https://www.linkedin.com/in/harry-p-winter)
