@@ -5,7 +5,7 @@ description = "Local-first LLM agent observability — decorator + OpenTelemetry
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "Harry Winter" }]
+authors = [{ name = "Harry Winter", email = "harrywinter.uk@gmail.com" }]
 keywords = ["llm", "agents", "tracing", "observability", "debugging", "anthropic"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -41,6 +41,8 @@ clustertrace = "clustertrace.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/harrywinter06-code/clustertrace"
+Documentation = "https://harrywinter06-code.github.io/projects/clustertrace/"
+Author = "https://harrywinter06-code.github.io/"
 
 [build-system]
 requires = ["hatchling"]
